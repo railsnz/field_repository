@@ -162,14 +162,6 @@ export default function CreateModal({ isOpen, onClose, onSave }: CreateModalProp
                   />
                 </div>
 
-                <div className="create-form-row">
-                  <span className="create-form-label">Default option</span>
-                  <div className="disabled-input-wrap">
-                    <input className="disabled-input" disabled placeholder="No options yet" />
-                    <div className="disabled-tooltip">You can set a default option after creating the field and adding options to it.</div>
-                  </div>
-                </div>
-
                 <div className="options-notice">
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                     <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3"/>
@@ -177,6 +169,7 @@ export default function CreateModal({ isOpen, onClose, onSave }: CreateModalProp
                   </svg>
                   Options for this lookup field can be added after the field is created. You&apos;ll be taken straight to the field editor when you save.
                 </div>
+
               </div>
             )}
           </div>
