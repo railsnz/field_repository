@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom'
 import { Option } from '@/types'
 import OptionRow from './OptionRow'
 
-const MAX_PINNED = 10
+// const MAX_PINNED = 10  // temporarily hidden (pin feature)
 const MANY_THRESHOLD = 50
 
 const checkIcon = (
@@ -63,7 +63,8 @@ export default function OptionsPanel({
   const [sortMode, setSortMode] = useState<'az' | 'custom'>('custom')
   const [sortMenuOpen, setSortMenuOpen] = useState(false)
   const sortMenuRef = useRef<HTMLDivElement>(null)
-  const pinnedDragSrc = useRef<number | null>(null)
+  // const pinnedDragSrc = useRef<number | null>(null)  // temporarily hidden
+  // const unpinnedDragSrc = useRef<number | null>(null)  // temporarily hidden
   const unpinnedDragSrc = useRef<number | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
@@ -89,8 +90,8 @@ export default function OptionsPanel({
   }, [sortMenuOpen])
 
   const hasMany = options.length >= MANY_THRESHOLD
-  const pinnedOpts = options.filter(o => o.pinned)
-  const unpinnedOpts = options.filter(o => !o.pinned)
+  // const pinnedOpts = options.filter(o => o.pinned)  // temporarily hidden
+  // const unpinnedOpts = options.filter(o => !o.pinned)  // temporarily hidden
   const isSearching = searchQuery.length > 0
   const canCustomSort = !hasMany
   const canDragUnpinned = canCustomSort && sortMode === 'custom' && !isSearching
@@ -142,7 +143,7 @@ export default function OptionsPanel({
 
   function handleSetCustom() { setSortMenuOpen(false); setSortMode('custom') }
 
-  // ── Pin ──────────────────────────────────────────────
+  /* ── Pin — temporarily hidden ───────────────────────
   async function handlePin(opt: Option) {
     if (!opt.pinned && pinnedOpts.length >= MAX_PINNED) {
       onSnackbar('Maximum 10 options can be pinned to the top'); return
@@ -174,6 +175,7 @@ export default function OptionsPanel({
     onSnackbar(`"${item.label}" reordered`, async () => { await onReorderOptions(prev) })
   }
   function handlePinnedDragEnd() { pinnedDragSrc.current = null }
+  ── end pin ─────────────────────────────────────────── */
 
   // ── Drag — unpinned ──────────────────────────────────
   function handleUnpinnedDragStart(idx: number) { unpinnedDragSrc.current = idx }
@@ -183,11 +185,11 @@ export default function OptionsPanel({
     const src = unpinnedDragSrc.current
     if (src === null || src === targetIdx) return
     const prev = [...options]
-    const reordered = [...unpinnedOpts]
+    const reordered = [...options]
     const [item] = reordered.splice(src, 1)
     reordered.splice(targetIdx, 0, item)
     unpinnedDragSrc.current = null
-    await onReorderOptions([...pinnedOpts, ...reordered])
+    await onReorderOptions(reordered)
     onSnackbar(`"${item.label}" reordered`, async () => { await onReorderOptions(prev) })
   }
   function handleUnpinnedDragEnd() { unpinnedDragSrc.current = null }
@@ -204,17 +206,14 @@ export default function OptionsPanel({
   }
 
   // ── Row renderer ─────────────────────────────────────
-  function renderRow(opt: Option, idx: number, section: 'pinned' | 'unpinned' | 'search' | 'hidden' | 'matter-visible') {
-    const canDrag = section === 'pinned' || (section === 'unpinned' && canDragUnpinned)
-    const canPin = !!opt.pinned || pinnedOpts.length < MAX_PINNED
+  function renderRow(opt: Option, idx: number, section: 'unpinned' | 'search' | 'hidden' | 'matter-visible') {
+    const canDrag = section === 'unpinned' && canDragUnpinned
     const canEdit = context === 'field'
     const canHide = context === 'matter'
     const isHid = hiddenOptIds.has(opt.id)
     const isDef = !!defaultOption && opt.label === defaultOption
 
-    const dragHandlers = section === 'pinned'
-      ? { onDragStart: handlePinnedDragStart, onDragOver: (e: React.DragEvent) => handlePinnedDragOver(e), onDragLeave: handlePinnedDragLeave, onDrop: handlePinnedDrop, onDragEnd: handlePinnedDragEnd }
-      : { onDragStart: handleUnpinnedDragStart, onDragOver: (e: React.DragEvent) => handleUnpinnedDragOver(e), onDragLeave: handleUnpinnedDragLeave, onDrop: handleUnpinnedDrop, onDragEnd: handleUnpinnedDragEnd }
+    const dragHandlers = { onDragStart: handleUnpinnedDragStart, onDragOver: (e: React.DragEvent) => handleUnpinnedDragOver(e), onDragLeave: handleUnpinnedDragLeave, onDrop: handleUnpinnedDrop, onDragEnd: handleUnpinnedDragEnd }
 
     return (
       <OptionRow
@@ -224,7 +223,6 @@ export default function OptionsPanel({
         isEditing={editingOptId === opt.id}
         highlightQuery={searchQuery}
         canDrag={canDrag}
-        canPin={canPin}
         canEdit={canEdit}
         canHide={canHide}
         isHidden={isHid}
@@ -235,7 +233,6 @@ export default function OptionsPanel({
         onSaveEdit={newLabel => handleSaveEdit(opt, newLabel)}
         onCancelEdit={() => setEditingOptId(null)}
         onDelete={() => setPendingDeleteOpt(opt)}
-        onPin={() => handlePin(opt)}
         onToggleHide={() => onToggleHide?.(opt.id)}
       />
     )
@@ -390,6 +387,7 @@ export default function OptionsPanel({
                   </>
                 ) : (
                   <>
+                    {/* Pinned section — temporarily hidden
                     {pinnedOpts.length > 0 && (
                       <>
                         <div className="pinned-section-label">Pinned to top</div>
@@ -401,7 +399,8 @@ export default function OptionsPanel({
                         )}
                       </>
                     )}
-                    {unpinnedOpts.map((opt, i) => renderRow(opt, i, 'unpinned'))}
+                    */}
+                    {options.map((opt, i) => renderRow(opt, i, 'unpinned'))}
                   </>
                 )}
               </div>

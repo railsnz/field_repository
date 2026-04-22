@@ -244,6 +244,7 @@ export default function FieldConfig({
                 value={name}
                 onChange={e => setName(e.target.value)}
                 onBlur={handleNameBlur}
+                onKeyDown={e => { if (e.key === 'Tab' || e.key === 'Enter') e.currentTarget.blur() }}
               />
             )}
           </div>
@@ -296,6 +297,7 @@ export default function FieldConfig({
                 value={desc}
                 onChange={e => setDesc(e.target.value)}
                 onBlur={handleDescBlur}
+                onKeyDown={e => { if (e.key === 'Tab' || e.key === 'Enter') e.currentTarget.blur() }}
                 placeholder="Add a description…"
                 autoFocus={context === 'matter' && activeFields.has('desc')}
               />
@@ -316,6 +318,7 @@ export default function FieldConfig({
                 value={placeholder}
                 onChange={e => setPlaceholder(e.target.value)}
                 onBlur={handlePlaceholderBlur}
+                onKeyDown={e => { if (e.key === 'Tab' || e.key === 'Enter') e.currentTarget.blur() }}
                 placeholder="e.g. Select a jurisdiction…"
                 autoFocus={context === 'matter' && activeFields.has('placeholder')}
               />

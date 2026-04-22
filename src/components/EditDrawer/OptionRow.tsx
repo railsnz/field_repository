@@ -9,7 +9,7 @@ interface OptionRowProps {
   isEditing: boolean
   highlightQuery?: string
   canDrag: boolean
-  canPin: boolean
+  // canPin: boolean  // temporarily hidden
   canEdit: boolean
   canHide?: boolean
   isHidden?: boolean
@@ -25,7 +25,7 @@ interface OptionRowProps {
   onSaveEdit: (newLabel: string) => void
   onCancelEdit: () => void
   onDelete: () => void
-  onPin: () => void
+  // onPin: () => void  // temporarily hidden
   onToggleHide?: () => void
 }
 
@@ -93,9 +93,9 @@ function renderHighlighted(text: string, query: string) {
 
 export default function OptionRow({
   option, isEditing, highlightQuery = '', index,
-  canDrag, canPin, canEdit, canHide = false, isHidden = false, isDefault = false,
+  canDrag, canEdit, canHide = false, isHidden = false, isDefault = false,
   onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd,
-  onMerge, onEdit, onSaveEdit, onCancelEdit, onDelete, onPin, onToggleHide,
+  onMerge, onEdit, onSaveEdit, onCancelEdit, onDelete, onToggleHide,
 }: OptionRowProps) {
   const [editVal, setEditVal] = useState(option.label)
   const [inputWidth, setInputWidth] = useState<number>(120)
@@ -133,7 +133,7 @@ export default function OptionRow({
     }
   }
 
-  const isPinned = !!option.pinned
+  // const isPinned = !!option.pinned  // temporarily hidden
 
   return (
     <>
@@ -209,6 +209,7 @@ export default function OptionRow({
               </>
             ) : (
               <>
+                {/* Pin button — temporarily hidden
                 <button
                   className={`icon-btn pin${isPinned ? ' pinned' : ''}`}
                   onMouseEnter={e => showTooltip(isPinned ? 'Unpin' : (canPin ? 'Pin to top' : 'Max 10 pinned'), e)}
@@ -218,6 +219,7 @@ export default function OptionRow({
                 >
                   {pinIcon(isPinned)}
                 </button>
+                */}
                 <button
                   className="icon-btn merge"
                   onMouseEnter={e => showTooltip('Merge', e)}

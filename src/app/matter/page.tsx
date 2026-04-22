@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Field, Option, SnackbarState } from '@/types'
 import EditDrawer from '@/components/EditDrawer'
 import MergeModal from '@/components/MergeModal'
@@ -56,6 +56,9 @@ function FieldTypeIcon({ type }: { type: string }) {
 
 export default function MatterPage() {
   const [allFields, setAllFields] = useState<Field[]>([])
+  // ID-based mapping resolved once on first load so renames don't break lookups
+  const [matterFieldIdsByType, setMatterFieldIdsByType] = useState<Record<string, string[]>>({})
+  const matterIdsInitialized = useRef(false)
   const [activeMatterTypeId, setActiveMatterTypeId] = useState('general')
   const [searchQuery, setSearchQuery] = useState('')
   const [activeSubTab, setActiveSubTab] = useState<'details' | 'scoping' | 'create' | 'completion'>('details')
@@ -67,15 +70,34 @@ export default function MatterPage() {
   const [showPreview, setShowPreview] = useState(false)
   const [mergeOption, setMergeOption] = useState<Option | null>(null)
   const [infoDeleteMode, setInfoDeleteMode] = useState<'info' | 'delete' | null>(null)
-  // Matter-context hidden options (per open drawer session)
-  const [hiddenMatterOptIds, setHiddenMatterOptIds] = useState<Set<string>>(new Set())
+  // Hidden options stored per field so they persist across open/close
+  const [hiddenOptsByField, setHiddenOptsByField] = useState<Map<string, Set<string>>>(new Map())
+  // Derived: hidden opt IDs for the currently open field
+  const hiddenMatterOptIds = activeFieldId ? (hiddenOptsByField.get(activeFieldId) ?? new Set<string>()) : new Set<string>()
+  // Template dirty state — tracks unsaved template changes
+  const [templateDirty, setTemplateDirty] = useState(false)
+  // Snapshots of every field opened during the current dirty session (pre-edit state)
+  const [editedFieldSnapshots, setEditedFieldSnapshots] = useState<Map<string, Field>>(new Map())
 
   const activeField = allFields.find(f => f.id === activeFieldId) ?? null
 
   // ── Fetch ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    fetch('/api/fields').then(r => r.json()).then(setAllFields)
+    fetch('/api/fields').then(r => r.json()).then((fields: Field[]) => {
+      setAllFields(fields)
+      // Resolve names → IDs once so renaming a field doesn't break matter lookups
+      if (!matterIdsInitialized.current) {
+        matterIdsInitialized.current = true
+        const idMap: Record<string, string[]> = {}
+        for (const [typeId, names] of Object.entries(MATTER_FIELD_NAMES)) {
+          idMap[typeId] = names
+            .map(name => fields.find(f => f.name === name)?.id)
+            .filter((id): id is string => !!id)
+        }
+        setMatterFieldIdsByType(idMap)
+      }
+    })
   }, [])
 
   async function fetchOptions(fieldId: string) {
@@ -86,9 +108,9 @@ export default function MatterPage() {
 
   // ── Fields for selected matter type ───────────────────────────────────
 
-  const matterFieldNames = MATTER_FIELD_NAMES[activeMatterTypeId] ?? []
-  const matterFields = matterFieldNames
-    .map(name => allFields.find(f => f.name === name))
+  const matterFieldIds = matterFieldIdsByType[activeMatterTypeId] ?? []
+  const matterFields = matterFieldIds
+    .map(id => allFields.find(f => f.id === id))
     .filter((f): f is Field => !!f)
 
   const visibleFields = searchQuery
@@ -99,36 +121,46 @@ export default function MatterPage() {
 
   async function openDrawer(field: Field) {
     setActiveFieldId(field.id)
-    setHiddenMatterOptIds(new Set())
+    // Capture pre-edit snapshot the first time each field is opened this session
+    setEditedFieldSnapshots(prev => {
+      if (prev.has(field.id)) return prev
+      const next = new Map(prev)
+      next.set(field.id, { ...field })
+      return next
+    })
     await fetchOptions(field.id)
   }
 
   function closeDrawer() {
     setActiveFieldId(null)
     setDrawerOptions([])
-    setHiddenMatterOptIds(new Set())
   }
 
   function handleToggleHiddenOpt(optId: string) {
+    if (!activeFieldId) return
     const opt = drawerOptions.find(o => o.id === optId)
-    const wasHidden = hiddenMatterOptIds.has(optId)
-    const newIds = new Set(hiddenMatterOptIds)
+    const current = hiddenOptsByField.get(activeFieldId) ?? new Set<string>()
+    const wasHidden = current.has(optId)
+    const newIds = new Set(current)
     if (wasHidden) newIds.delete(optId)
     else newIds.add(optId)
-    const prevIds = new Set(hiddenMatterOptIds)
-    setHiddenMatterOptIds(newIds)
+    const prevIds = new Set(current)
+    setHiddenOptsByField(prev => { const m = new Map(prev); m.set(activeFieldId, newIds); return m })
+    setTemplateDirty(true)
     if (wasHidden) {
       showSnackbarMsg(`"${opt?.label ?? 'Option'}" is now available`)
     } else {
       showSnackbarMsg(
         `"${opt?.label ?? 'Option'}" hidden from this matter type`,
-        async () => setHiddenMatterOptIds(prevIds),
+        async () => setHiddenOptsByField(prev => { const m = new Map(prev); m.set(activeFieldId, prevIds); return m }),
       )
     }
   }
 
   function handleResetHiddenOpts() {
-    setHiddenMatterOptIds(new Set())
+    if (!activeFieldId) return
+    setHiddenOptsByField(prev => { const m = new Map(prev); m.set(activeFieldId, new Set()); return m })
+    setTemplateDirty(true)
     showSnackbarMsg('Options reset to global')
   }
 
@@ -143,6 +175,7 @@ export default function MatterPage() {
     })
     const updated: Field = await res.json()
     setAllFields(prev => prev.map(f => f.id === updated.id ? updated : f))
+    setTemplateDirty(true)
   }
 
   async function handleDeleteField() {
@@ -231,6 +264,44 @@ export default function MatterPage() {
     }
   }
 
+  // ── Template save / cancel ────────────────────────────────────────────
+
+  async function handleSaveTemplate() {
+    setTemplateDirty(false)
+    setEditedFieldSnapshots(new Map())
+    showSnackbarMsg('Template saved')
+  }
+
+  async function handleCancelTemplate() {
+    // Revert every field edited during this session back to its pre-edit state
+    for (const [fieldId, snapshot] of editedFieldSnapshots) {
+      await fetch(`/api/fields/${fieldId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: snapshot.name,
+          description: snapshot.description,
+          placeholder: snapshot.placeholder,
+          defaultOption: snapshot.defaultOption,
+        }),
+      })
+    }
+    if (editedFieldSnapshots.size > 0) {
+      const res = await fetch('/api/fields')
+      setAllFields(await res.json())
+    }
+    // Clear hidden opts for all fields edited this session
+    setHiddenOptsByField(prev => {
+      const m = new Map(prev)
+      for (const fieldId of editedFieldSnapshots.keys()) m.delete(fieldId)
+      return m
+    })
+    setTemplateDirty(false)
+    setEditedFieldSnapshots(new Map())
+    closeDrawer()
+    showSnackbarMsg('Changes discarded')
+  }
+
   // ── Sub-tab badge counts ───────────────────────────────────────────────
   const detailsCount = matterFields.length
 
@@ -255,6 +326,9 @@ export default function MatterPage() {
                 onClick={() => {
                   setActiveMatterTypeId(mt.id)
                   setSearchQuery('')
+                  setTemplateDirty(false)
+                  setEditedFieldSnapshots(new Map())
+                  setHiddenOptsByField(new Map())
                   closeDrawer()
                 }}
               >
@@ -296,32 +370,18 @@ export default function MatterPage() {
             </div>
           </div>
 
-          {activeSubTab === 'create' ? (
-            (() => {
-              const mjField = allFields.find(f => f.name === 'Matter Jurisdiction')
-              return (
-                <div className="create-form-preview">
-                  <div className="create-form-preview-hint">
-                    Click a field to customise how it appears on the create form for this matter type.
-                  </div>
-                  {mjField && (
-                    <div
-                      className={`create-form-preview-row${activeFieldId === mjField.id ? ' active-row' : ''}`}
-                      onClick={() => openDrawer(mjField)}
-                    >
-                      <label className="create-form-preview-label">
-                        Matter Jurisdiction
-                        <span className="create-form-preview-required">*</span>
-                      </label>
-                      <div className="create-form-preview-input">Select a jurisdiction…</div>
-                    </div>
-                  )}
-                </div>
-              )
-            })()
-          ) : activeSubTab === 'details' ? (
+          {activeSubTab === 'details' || activeSubTab === 'create' ? (
             <>
-              {/* Search */}
+              {/* Save/Cancel row — only when dirty */}
+              {templateDirty && (
+                <div className="template-save-bar">
+                  <span className="template-save-label">You have unsaved changes to this tab</span>
+                  <button className="btn-ghost template-action-btn" onClick={handleCancelTemplate}>Cancel</button>
+                  <button className="btn-primary template-action-btn" onClick={handleSaveTemplate}>Save</button>
+                </div>
+              )}
+
+              {/* Toolbar: search + Add + Preview */}
               <div className="matter-search-bar">
                 <div className="matter-search-input-wrap">
                   <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
@@ -335,42 +395,79 @@ export default function MatterPage() {
                     onChange={e => setSearchQuery(e.target.value)}
                   />
                 </div>
+                <div className="matter-toolbar-actions">
+                  <button className="btn-primary template-action-btn" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                      <path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                    </svg>
+                    Add
+                  </button>
+                  <button className="btn-ghost template-action-btn" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <path d="M1 8s3-5 7-5 7 5 7 5-3 5-7 5-7-5-7-5z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                      <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.3"/>
+                    </svg>
+                    Preview
+                  </button>
+                </div>
               </div>
 
-              {/* Table */}
-              <div className="matter-table-wrap">
-                <div className="matter-table-head">
-                  <span />
-                  <span>Field name</span>
-                  <span>Field type</span>
-                </div>
-                {visibleFields.map(field => (
-                  <div
-                    key={field.id}
-                    className={`matter-table-row${field.id === activeFieldId ? ' active-row' : ''}`}
-                    onClick={() => openDrawer(field)}
-                  >
-                    <input
-                      type="checkbox"
-                      className="matter-row-checkbox"
-                      onClick={e => e.stopPropagation()}
-                      readOnly
-                    />
-                    <span className="matter-field-name">{field.name}</span>
-                    <span className="matter-field-type">
-                      <span className="matter-type-icon">
-                        <FieldTypeIcon type={field.type} />
+              {/* Tab content */}
+              {activeSubTab === 'details' ? (
+                <div className="matter-table-wrap">
+                  <div className="matter-table-head">
+                    <span />
+                    <span>Field name</span>
+                    <span>Field type</span>
+                  </div>
+                  {visibleFields.map(field => (
+                    <div
+                      key={field.id}
+                      className={`matter-table-row${field.id === activeFieldId ? ' active-row' : ''}`}
+                      onClick={() => openDrawer(field)}
+                    >
+                      <input type="checkbox" className="matter-row-checkbox" onClick={e => e.stopPropagation()} readOnly />
+                      <span className="matter-field-name">{field.name}</span>
+                      <span className="matter-field-type">
+                        <span className="matter-type-icon"><FieldTypeIcon type={field.type} /></span>
+                        {field.type}
                       </span>
-                      {field.type}
-                    </span>
-                  </div>
-                ))}
-                {visibleFields.length === 0 && (
-                  <div style={{ padding: '40px 28px', color: '#aaa', fontSize: 13, textAlign: 'center' }}>
-                    {searchQuery ? 'No fields match your search' : 'No fields in this matter type'}
-                  </div>
-                )}
-              </div>
+                    </div>
+                  ))}
+                  {visibleFields.length === 0 && (
+                    <div style={{ padding: '40px 28px', color: '#aaa', fontSize: 13, textAlign: 'center' }}>
+                      {searchQuery ? 'No fields match your search' : 'No fields in this matter type'}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                (() => {
+                  const mjId = (matterFieldIdsByType[activeMatterTypeId] ?? [])[0]
+                  const mjField = mjId ? allFields.find(f => f.id === mjId) : undefined
+                  return (
+                    <div className="matter-table-wrap">
+                      <div className="matter-table-head">
+                        <span />
+                        <span>Field name</span>
+                        <span>Field type</span>
+                      </div>
+                      {mjField && (
+                        <div
+                          className={`matter-table-row${activeFieldId === mjField.id ? ' active-row' : ''}`}
+                          onClick={() => openDrawer(mjField)}
+                        >
+                          <input type="checkbox" className="matter-row-checkbox" onClick={e => e.stopPropagation()} readOnly />
+                          <span className="matter-field-name">{mjField.name}</span>
+                          <span className="matter-field-type">
+                            <span className="matter-type-icon"><FieldTypeIcon type={mjField.type} /></span>
+                            {mjField.type}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()
+              )}
             </>
           ) : (
             <div className="matter-coming-soon">This tab is not available in this prototype.</div>
@@ -383,7 +480,7 @@ export default function MatterPage() {
           options={drawerOptions}
           isOpen={!!activeFieldId}
           context="matter"
-          contextLabel={MATTER_TYPES.find(m => m.id === activeMatterTypeId)?.name}
+          contextLabel={`${MATTER_TYPES.find(m => m.id === activeMatterTypeId)?.name} • ${activeSubTab === 'create' ? 'Create form' : 'Matter details'}`}
           hiddenMatterOptIds={hiddenMatterOptIds}
           showCreateAlias={activeSubTab === 'create'}
           onToggleHiddenOpt={handleToggleHiddenOpt}

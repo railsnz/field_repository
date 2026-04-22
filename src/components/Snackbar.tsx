@@ -25,9 +25,11 @@ export default function Snackbar({ snackbar, onUndo, onDismiss }: SnackbarProps)
   return (
     <div className={`snackbar${snackbar ? ' show' : ''}`}>
       <span>{snackbar?.message ?? ''}</span>
+      {/* Undo button — temporarily hidden
       {snackbar?.undoFn && (
         <button className="snackbar-undo" onClick={onUndo}>Undo</button>
       )}
+      */}
     </div>
   )
 }

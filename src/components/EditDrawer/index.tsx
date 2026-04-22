@@ -114,8 +114,12 @@ export default function EditDrawer({
         onMouseDown={handleResizeMouseDown}
       />
       <div className="drawer-header">
-        <span className="drawer-title">{context === 'matter' ? 'Customize field' : 'Edit field'}</span>
-        {field && <span className="type-badge">{field.type}</span>}
+        <span className="drawer-title">
+          {field
+            ? `${context === 'matter' ? 'Customize' : 'Edit'} ${field.type.charAt(0).toLowerCase() + field.type.slice(1)} field`
+            : context === 'matter' ? 'Customize field' : 'Edit field'
+          }
+        </span>
         <div className="header-actions">
           <button className="preview-btn" onClick={onOpenPreview}>Preview</button>
           <button className="hdr-btn mono-btn" title="Field schema">{'{ }'}</button>
@@ -143,7 +147,7 @@ export default function EditDrawer({
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
                   <path d="M3 4h10M6 4V3h4v1M5 4l.5 9h5L11 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
-                Delete field
+                {context === 'matter' ? 'Remove field' : 'Delete field'}
               </div>
             </div>
           </div>
@@ -164,7 +168,7 @@ export default function EditDrawer({
               <path d="M8 7v4M8 5.2v.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
             </svg>
             <span>
-              Customizing for <strong>{contextLabel}</strong>{' '}only. Changes here don&apos;t affect the global field or other templates.
+              Customizing for <strong>{contextLabel}</strong>{' '}only. Changes here don&apos;t affect the global field or other tabs.
             </span>
           </div>
         )}

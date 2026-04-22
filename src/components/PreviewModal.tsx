@@ -49,10 +49,11 @@ export default function PreviewModal({ field, options, isOpen, onClose }: Previe
   const allFiltered = searchVal
     ? options.filter(o => o.label.toLowerCase().includes(searchVal.toLowerCase()))
     : options
-  const hasPinnedSection = !searchVal && options.some(o => o.pinned)
-  const filteredPinned = hasPinnedSection ? allFiltered.filter(o => o.pinned) : []
-  const filteredUnpinned = hasPinnedSection ? allFiltered.filter(o => !o.pinned) : allFiltered
-  const filteredOpts = allFiltered // kept for length checks
+  // Pin section temporarily hidden
+  // const hasPinnedSection = !searchVal && options.some(o => o.pinned)
+  // const filteredPinned = hasPinnedSection ? allFiltered.filter(o => o.pinned) : []
+  // const filteredUnpinned = hasPinnedSection ? allFiltered.filter(o => !o.pinned) : allFiltered
+  const filteredOpts = allFiltered
 
   function selectOpt(label: string) {
     if (isMulti) {
@@ -159,16 +160,6 @@ export default function PreviewModal({ field, options, isOpen, onClose }: Previe
         >
           {filteredOpts.length === 0 ? (
             <div style={{ padding: 12, color: '#aaa', fontSize: 13, textAlign: 'center' }}>No results</div>
-          ) : hasPinnedSection ? (
-            <>
-              {filteredPinned.map(opt => renderDropdownItem(opt))}
-              {filteredUnpinned.length > 0 && (
-                <div className="preview-pinned-divider">
-                  <span className="preview-pinned-divider-label">All options</span>
-                </div>
-              )}
-              {filteredUnpinned.map(opt => renderDropdownItem(opt))}
-            </>
           ) : (
             filteredOpts.map(opt => renderDropdownItem(opt))
           )}
