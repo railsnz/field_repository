@@ -7,11 +7,12 @@ import OptionsPanel from './OptionsPanel'
 
 const MIN_WIDTH = 320
 const MAX_WIDTH = 1200
-const DEFAULT_WIDTH = 780
+const DEFAULT_WIDTH = 520
 const LS_KEY = 'lawvu-drawer-width'
 
 interface EditDrawerProps {
   field: Field | null
+  globalField?: Field   // pre-edit snapshot — used to derive Customized state in matter context
   options: Option[]
   isOpen: boolean
   context?: 'field' | 'matter'
@@ -34,7 +35,7 @@ interface EditDrawerProps {
 }
 
 export default function EditDrawer({
-  field, options, isOpen, context = 'field', contextLabel,
+  field, globalField, options, isOpen, context = 'field', contextLabel,
   hiddenMatterOptIds, showCreateAlias = false, onToggleHiddenOpt, onResetHiddenOpts,
   onClose, onUpdateField, onAddOption, onDeleteOption, onRenameOption,
   onSortOptions, onReorderOptions, onMergeOption,
@@ -45,11 +46,15 @@ export default function EditDrawer({
   const [drawerWidth, setDrawerWidth] = useState(DEFAULT_WIDTH)
 
   // Restore persisted width after mount (avoids SSR/client hydration mismatch)
+  // Cap at 60% of viewport so there's always room for the table
   useEffect(() => {
+    const maxAllowed = Math.min(MAX_WIDTH, Math.floor(window.innerWidth * 0.6))
     const saved = localStorage.getItem(LS_KEY)
     if (saved) {
       const parsed = parseInt(saved, 10)
-      if (!isNaN(parsed)) setDrawerWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, parsed)))
+      if (!isNaN(parsed)) setDrawerWidth(Math.min(maxAllowed, Math.max(MIN_WIDTH, parsed)))
+    } else {
+      setDrawerWidth(Math.min(DEFAULT_WIDTH, maxAllowed))
     }
   }, [])
   const [isDragging, setIsDragging] = useState(false)
@@ -67,7 +72,8 @@ export default function EditDrawer({
     if (!isDragging) return
     function onMouseMove(e: MouseEvent) {
       const delta = dragStartX.current - e.clientX
-      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, dragStartWidth.current + delta))
+      const maxAllowed = Math.min(MAX_WIDTH, Math.floor(window.innerWidth * 0.6))
+      const newWidth = Math.min(maxAllowed, Math.max(MIN_WIDTH, dragStartWidth.current + delta))
       setDrawerWidth(newWidth)
     }
     function onMouseUp() {
@@ -106,7 +112,7 @@ export default function EditDrawer({
   return (
     <div
       className={`drawer${isOpen ? ' open' : ''}`}
-      style={{ width: drawerWidth, userSelect: isDragging ? 'none' : undefined }}
+      style={{ width: isOpen ? drawerWidth : 0, userSelect: isDragging ? 'none' : undefined }}
     >
       {/* Drag handle — left edge */}
       <div
@@ -176,6 +182,7 @@ export default function EditDrawer({
           <>
             <FieldConfig
               field={field}
+              globalField={globalField}
               options={options}
               context={context}
               showCreateAlias={showCreateAlias}

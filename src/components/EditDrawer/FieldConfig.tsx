@@ -7,6 +7,7 @@ import DefaultDropdown from './DefaultDropdown'
 
 interface FieldConfigProps {
   field: Field
+  globalField?: Field   // pre-edit snapshot for deriving Customized state
   options: Option[]
   context?: 'field' | 'matter'
   showCreateAlias?: boolean
@@ -34,7 +35,7 @@ const infoIcon = (
 )
 
 export default function FieldConfig({
-  field, options, context = 'field', showCreateAlias = false,
+  field, globalField, options, context = 'field', showCreateAlias = false,
   onUpdateField, onSnackbar,
 }: FieldConfigProps) {
   const [open, setOpen] = useState(true)
@@ -53,7 +54,6 @@ export default function FieldConfig({
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number; align: 'center' | 'right' } | null>(null)
   const defaultInputRef = useRef<HTMLInputElement>(null)
   const aliasInputRef = useRef<HTMLInputElement>(null)
-
   useEffect(() => { setMounted(true) }, [])
 
   // Sync local state when a different field is opened
@@ -63,7 +63,16 @@ export default function FieldConfig({
     setPlaceholder(field.placeholder)
     setDefaultVal(field.defaultOption)
     setActiveFields(new Set())
-    setCustomizedFields(new Set())
+    // Derive which keys are customized by comparing to the pre-edit snapshot
+    if (globalField) {
+      const customized = new Set<FieldKey>()
+      if (field.description !== globalField.description) customized.add('desc')
+      if (field.placeholder !== globalField.placeholder) customized.add('placeholder')
+      if (field.defaultOption !== globalField.defaultOption) customized.add('defaultOption')
+      setCustomizedFields(customized)
+    } else {
+      setCustomizedFields(new Set())
+    }
     setCreateAlias(field.name)
     setAliasActive(false)
     setAliasCustomized(false)
@@ -88,9 +97,23 @@ export default function FieldConfig({
     if (changed) setCustomizedFields(prev => new Set([...prev, key]))
   }
 
-  function resetField(key: FieldKey) {
+  async function resetField(key: FieldKey) {
     setCustomizedFields(prev => { const n = new Set(prev); n.delete(key); return n })
     setActiveFields(prev => { const n = new Set(prev); n.delete(key); return n })
+    // Revert to the pre-edit global value and save
+    if (key === 'desc') {
+      const val = globalField?.description ?? ''
+      setDesc(val)
+      await onUpdateField({ description: val })
+    } else if (key === 'placeholder') {
+      const val = globalField?.placeholder ?? ''
+      setPlaceholder(val)
+      await onUpdateField({ placeholder: val })
+    } else if (key === 'defaultOption') {
+      const val = globalField?.defaultOption ?? ''
+      setDefaultVal(val)
+      await onUpdateField({ defaultOption: val })
+    }
   }
 
   async function handleNameBlur() {
@@ -145,6 +168,8 @@ export default function FieldConfig({
       })
     }
   }
+
+  const isLookup = field.type.toLowerCase().startsWith('lookup')
 
   // ── Sub-components ───────────────────────────────────
 
@@ -305,8 +330,8 @@ export default function FieldConfig({
             {context === 'matter' && <OverrideControl fieldKey="desc" />}
           </div>
 
-          {/* Placeholder text */}
-          <div className="form-row">
+          {/* Placeholder text — hidden for lookup fields */}
+          {!isLookup && <div className="form-row">
             <span className="form-label">Placeholder text</span>
             {context === 'matter' && !activeFields.has('placeholder') ? (
               <div className="form-input form-input-readonly">
@@ -324,7 +349,7 @@ export default function FieldConfig({
               />
             )}
             {context === 'matter' && <OverrideControl fieldKey="placeholder" />}
-          </div>
+          </div>}
 
           {/* Default option */}
           <div className="form-row" style={{ position: 'relative', overflow: 'visible' }}>
@@ -385,7 +410,8 @@ export default function FieldConfig({
         whiteSpace: 'normal',
         pointerEvents: 'none',
         zIndex: 9999,
-        maxWidth: 240,
+        width: 'max-content',
+        maxWidth: 200,
         lineHeight: 1.5,
       }}>
         {tooltip.text}

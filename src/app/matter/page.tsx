@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Field, Option, SnackbarState } from '@/types'
 import EditDrawer from '@/components/EditDrawer'
 import MergeModal from '@/components/MergeModal'
@@ -78,6 +78,10 @@ export default function MatterPage() {
   const [templateDirty, setTemplateDirty] = useState(false)
   // Snapshots of every field opened during the current dirty session (pre-edit state)
   const [editedFieldSnapshots, setEditedFieldSnapshots] = useState<Map<string, Field>>(new Map())
+  // Field order reordering — original order snapshot per matter type for Cancel revert
+  const [originalFieldOrderByType, setOriginalFieldOrderByType] = useState<Map<string, string[]>>(new Map())
+  const [fieldDragOverIdx, setFieldDragOverIdx] = useState<number | null>(null)
+  const fieldDragSrc = useRef<number | null>(null)
 
   const activeField = allFields.find(f => f.id === activeFieldId) ?? null
 
@@ -162,6 +166,46 @@ export default function MatterPage() {
     setHiddenOptsByField(prev => { const m = new Map(prev); m.set(activeFieldId, new Set()); return m })
     setTemplateDirty(true)
     showSnackbarMsg('Options reset to global')
+  }
+
+  // ── Field row drag-and-drop ────────────────────────────────────────────
+
+  function handleFieldDragStart(idx: number) {
+    fieldDragSrc.current = idx
+  }
+
+  function handleFieldDragOver(e: React.DragEvent, idx: number) {
+    e.preventDefault()
+    setFieldDragOverIdx(idx)
+  }
+
+  function handleFieldDragLeave() {
+    setFieldDragOverIdx(null)
+  }
+
+  function handleFieldDrop(e: React.DragEvent, targetIdx: number) {
+    setFieldDragOverIdx(null)
+    const src = fieldDragSrc.current
+    if (src === null || src === targetIdx) return
+    fieldDragSrc.current = null
+    const currentIds = matterFieldIdsByType[activeMatterTypeId] ?? []
+    // Capture original order before the first drag in this session
+    setOriginalFieldOrderByType(prev => {
+      if (prev.has(activeMatterTypeId)) return prev
+      const next = new Map(prev)
+      next.set(activeMatterTypeId, [...currentIds])
+      return next
+    })
+    const reordered = [...currentIds]
+    const [item] = reordered.splice(src, 1)
+    reordered.splice(targetIdx, 0, item)
+    setMatterFieldIdsByType(prev => ({ ...prev, [activeMatterTypeId]: reordered }))
+    setTemplateDirty(true)
+  }
+
+  function handleFieldDragEnd() {
+    fieldDragSrc.current = null
+    setFieldDragOverIdx(null)
   }
 
   // ── Field mutations (same as Field Management) ─────────────────────────
@@ -267,8 +311,8 @@ export default function MatterPage() {
   // ── Template save / cancel ────────────────────────────────────────────
 
   async function handleSaveTemplate() {
+    // Keep editedFieldSnapshots — they remain the global baseline for Customized pills
     setTemplateDirty(false)
-    setEditedFieldSnapshots(new Map())
     showSnackbarMsg('Template saved')
   }
 
@@ -296,11 +340,42 @@ export default function MatterPage() {
       for (const fieldId of editedFieldSnapshots.keys()) m.delete(fieldId)
       return m
     })
+    // Revert field order for any types that were reordered
+    if (originalFieldOrderByType.size > 0) {
+      setMatterFieldIdsByType(prev => {
+        const next = { ...prev }
+        for (const [typeId, originalIds] of originalFieldOrderByType) {
+          next[typeId] = originalIds
+        }
+        return next
+      })
+    }
+    setOriginalFieldOrderByType(new Map())
     setTemplateDirty(false)
     setEditedFieldSnapshots(new Map())
     closeDrawer()
     showSnackbarMsg('Changes discarded')
   }
+
+  // ── Fields with pending changes (config or hidden opts — not reorder) ─────
+  const fieldsWithPendingChanges = useMemo(() => {
+    if (!templateDirty) return new Set<string>()
+    const result = new Set<string>()
+    // Hidden options
+    for (const [fieldId, hiddenIds] of hiddenOptsByField) {
+      if (hiddenIds.size > 0) result.add(fieldId)
+    }
+    // Field config changes vs snapshot
+    for (const [fieldId, snapshot] of editedFieldSnapshots) {
+      const current = allFields.find(f => f.id === fieldId)
+      if (current && (
+        current.description !== snapshot.description ||
+        current.placeholder !== snapshot.placeholder ||
+        current.defaultOption !== snapshot.defaultOption
+      )) result.add(fieldId)
+    }
+    return result
+  }, [templateDirty, hiddenOptsByField, editedFieldSnapshots, allFields])
 
   // ── Sub-tab badge counts ───────────────────────────────────────────────
   const detailsCount = matterFields.length
@@ -329,6 +404,7 @@ export default function MatterPage() {
                   setTemplateDirty(false)
                   setEditedFieldSnapshots(new Map())
                   setHiddenOptsByField(new Map())
+                  setOriginalFieldOrderByType(new Map())
                   closeDrawer()
                 }}
               >
@@ -417,23 +493,48 @@ export default function MatterPage() {
                 <div className="matter-table-wrap">
                   <div className="matter-table-head">
                     <span />
+                    <span />
                     <span>Field name</span>
                     <span>Field type</span>
                   </div>
-                  {visibleFields.map(field => (
-                    <div
-                      key={field.id}
-                      className={`matter-table-row${field.id === activeFieldId ? ' active-row' : ''}`}
-                      onClick={() => openDrawer(field)}
-                    >
-                      <input type="checkbox" className="matter-row-checkbox" onClick={e => e.stopPropagation()} readOnly />
-                      <span className="matter-field-name">{field.name}</span>
-                      <span className="matter-field-type">
-                        <span className="matter-type-icon"><FieldTypeIcon type={field.type} /></span>
-                        {field.type}
-                      </span>
-                    </div>
-                  ))}
+                  {visibleFields.map((field, idx) => {
+                    const canDrag = !searchQuery
+                    return (
+                      <div
+                        key={field.id}
+                        className={`matter-table-row${field.id === activeFieldId ? ' active-row' : ''}${fieldDragOverIdx === idx ? ' field-drag-over' : ''}`}
+                        draggable={canDrag}
+                        onDragStart={canDrag ? () => handleFieldDragStart(idx) : undefined}
+                        onDragOver={canDrag ? e => handleFieldDragOver(e, idx) : undefined}
+                        onDragLeave={canDrag ? handleFieldDragLeave : undefined}
+                        onDrop={canDrag ? e => handleFieldDrop(e, idx) : undefined}
+                        onDragEnd={canDrag ? handleFieldDragEnd : undefined}
+                        onClick={() => openDrawer(field)}
+                      >
+                        <span className={`matter-row-drag-handle${canDrag ? '' : ' hidden'}`}>
+                          <svg width="10" height="14" viewBox="0 0 10 16" fill="none">
+                            <circle cx="3" cy="3" r="1.5" fill="currentColor"/>
+                            <circle cx="3" cy="8" r="1.5" fill="currentColor"/>
+                            <circle cx="3" cy="13" r="1.5" fill="currentColor"/>
+                            <circle cx="8" cy="3" r="1.5" fill="currentColor"/>
+                            <circle cx="8" cy="8" r="1.5" fill="currentColor"/>
+                            <circle cx="8" cy="13" r="1.5" fill="currentColor"/>
+                          </svg>
+                        </span>
+                        <input type="checkbox" className="matter-row-checkbox" onClick={e => e.stopPropagation()} readOnly />
+                        <span className="matter-field-name">
+                          {field.name}
+                          {fieldsWithPendingChanges.has(field.id) && (
+                            <span className="pending-pill">Changes pending</span>
+                          )}
+                        </span>
+                        <span className="matter-field-type">
+                          <span className="matter-type-icon"><FieldTypeIcon type={field.type} /></span>
+                          {field.type}
+                        </span>
+                      </div>
+                    )
+                  })}
                   {visibleFields.length === 0 && (
                     <div style={{ padding: '40px 28px', color: '#aaa', fontSize: 13, textAlign: 'center' }}>
                       {searchQuery ? 'No fields match your search' : 'No fields in this matter type'}
@@ -448,6 +549,7 @@ export default function MatterPage() {
                     <div className="matter-table-wrap">
                       <div className="matter-table-head">
                         <span />
+                        <span />
                         <span>Field name</span>
                         <span>Field type</span>
                       </div>
@@ -456,8 +558,14 @@ export default function MatterPage() {
                           className={`matter-table-row${activeFieldId === mjField.id ? ' active-row' : ''}`}
                           onClick={() => openDrawer(mjField)}
                         >
+                          <span />
                           <input type="checkbox" className="matter-row-checkbox" onClick={e => e.stopPropagation()} readOnly />
-                          <span className="matter-field-name">{mjField.name}</span>
+                          <span className="matter-field-name">
+                            {mjField.name}
+                            {fieldsWithPendingChanges.has(mjField.id) && (
+                              <span className="pending-pill">Changes pending</span>
+                            )}
+                          </span>
                           <span className="matter-field-type">
                             <span className="matter-type-icon"><FieldTypeIcon type={mjField.type} /></span>
                             {mjField.type}
@@ -477,6 +585,7 @@ export default function MatterPage() {
         {/* ── Edit Drawer (reused) ──────────────────────────── */}
         <EditDrawer
           field={activeField}
+          globalField={activeFieldId ? editedFieldSnapshots.get(activeFieldId) : undefined}
           options={drawerOptions}
           isOpen={!!activeFieldId}
           context="matter"

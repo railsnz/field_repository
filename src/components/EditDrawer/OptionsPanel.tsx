@@ -6,7 +6,6 @@ import { Option } from '@/types'
 import OptionRow from './OptionRow'
 
 // const MAX_PINNED = 10  // temporarily hidden (pin feature)
-const MANY_THRESHOLD = 50
 
 const checkIcon = (
   <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
@@ -62,6 +61,7 @@ export default function OptionsPanel({
   const [mounted, setMounted] = useState(false)
   const [sortMode, setSortMode] = useState<'az' | 'custom'>('custom')
   const [sortMenuOpen, setSortMenuOpen] = useState(false)
+  const [sortingInProgress, setSortingInProgress] = useState(false)
   const sortMenuRef = useRef<HTMLDivElement>(null)
   // const pinnedDragSrc = useRef<number | null>(null)  // temporarily hidden
   // const unpinnedDragSrc = useRef<number | null>(null)  // temporarily hidden
@@ -77,10 +77,6 @@ export default function OptionsPanel({
   }, [fieldId])
 
   useEffect(() => {
-    if (options.length >= MANY_THRESHOLD) setSortMode('az')
-  }, [options.length >= MANY_THRESHOLD])
-
-  useEffect(() => {
     if (!sortMenuOpen) return
     function handler(e: MouseEvent) {
       if (sortMenuRef.current && !sortMenuRef.current.contains(e.target as Node)) setSortMenuOpen(false)
@@ -89,19 +85,20 @@ export default function OptionsPanel({
     return () => document.removeEventListener('mousedown', handler)
   }, [sortMenuOpen])
 
-  const hasMany = options.length >= MANY_THRESHOLD
   // const pinnedOpts = options.filter(o => o.pinned)  // temporarily hidden
   // const unpinnedOpts = options.filter(o => !o.pinned)  // temporarily hidden
   const isSearching = searchQuery.length > 0
-  const canCustomSort = !hasMany
-  const canDragUnpinned = canCustomSort && sortMode === 'custom' && !isSearching
-  const searchResults = isSearching
-    ? options.filter(o => o.label.toLowerCase().includes(searchQuery.toLowerCase()))
-    : []
+  const canDragUnpinned = sortMode === 'custom' && !isSearching
 
   // Matter: hidden / visible split
   const hiddenOpts = context === 'matter' ? options.filter(o => hiddenOptIds.has(o.id)) : []
   const visibleOpts = context === 'matter' ? options.filter(o => !hiddenOptIds.has(o.id)) : []
+
+  // Search only over the searchable pool (hidden opts are excluded in matter context)
+  const searchPool = context === 'matter' ? visibleOpts : options
+  const searchResults = isSearching
+    ? searchPool.filter(o => o.label.toLowerCase().includes(searchQuery.toLowerCase()))
+    : []
 
   // ── Add ──────────────────────────────────────────────
   async function handleAdd() {
@@ -135,13 +132,21 @@ export default function OptionsPanel({
   // ── Sort ─────────────────────────────────────────────
   async function handleSortAZ() {
     setSortMenuOpen(false)
+    setSortingInProgress(true)
     const prev = [...options]
     setSortMode('az')
-    await onSortOptions()
+    await Promise.all([onSortOptions(), new Promise(r => setTimeout(r, 500))])
+    setSortingInProgress(false)
     onSnackbar('Options sorted A–Z', async () => { setSortMode('custom'); await onReorderOptions(prev) })
   }
 
-  function handleSetCustom() { setSortMenuOpen(false); setSortMode('custom') }
+  async function handleSetCustom() {
+    setSortMenuOpen(false)
+    setSortingInProgress(true)
+    setSortMode('custom')
+    await new Promise(r => setTimeout(r, 500))
+    setSortingInProgress(false)
+  }
 
   /* ── Pin — temporarily hidden ───────────────────────
   async function handlePin(opt: Option) {
@@ -304,13 +309,11 @@ export default function OptionsPanel({
                       Alphabetically A–Z
                     </div>
                     <div
-                      className={`sort-dropdown-item${sortMode === 'custom' ? ' active' : ''}${!canCustomSort ? ' disabled' : ''}`}
-                      onClick={() => canCustomSort && handleSetCustom()}
-                      title={!canCustomSort ? 'Custom order is unavailable for fields with 50 or more options' : undefined}
+                      className={`sort-dropdown-item${sortMode === 'custom' ? ' active' : ''}`}
+                      onClick={handleSetCustom}
                     >
                       <span style={{ width: 12, display: 'flex' }}>{sortMode === 'custom' && checkIcon}</span>
                       Custom
-                      {!canCustomSort && <span className="sort-dropdown-badge">&lt; 50 options</span>}
                     </div>
                   </div>
                 )}
@@ -334,6 +337,15 @@ export default function OptionsPanel({
 
         {open && (
           <div className="options-inner">
+            {/* Hidden options — shown above search, not part of the searchable list */}
+            {context === 'matter' && hiddenOpts.length > 0 && (
+              <div className="hidden-above-search">
+                <div className="pinned-section-label hidden-section-label">Hidden from this tab</div>
+                {hiddenOpts.map((opt, i) => renderRow(opt, i, 'hidden'))}
+                <div className="hidden-above-divider" />
+              </div>
+            )}
+
             <div className="opt-controls">
               <div className="opt-search-wrap">
                 <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
@@ -373,18 +385,9 @@ export default function OptionsPanel({
                 ) : options.length === 0 ? (
                   renderEmptyState()
                 ) : context === 'matter' ? (
-                  <>
-                    {hiddenOpts.length > 0 && (
-                      <>
-                        <div className="pinned-section-label hidden-section-label">Hidden from this matter type</div>
-                        {hiddenOpts.map((opt, i) => renderRow(opt, i, 'hidden'))}
-                        <div className="pinned-divider">
-                          <span className="pinned-divider-label">All options</span>
-                        </div>
-                      </>
-                    )}
-                    {visibleOpts.map((opt, i) => renderRow(opt, i, 'matter-visible'))}
-                  </>
+                  visibleOpts.length === 0
+                    ? <div className="empty-search">All options are hidden</div>
+                    : visibleOpts.map((opt, i) => renderRow(opt, i, 'matter-visible'))
                 ) : (
                   <>
                     {/* Pinned section — temporarily hidden
@@ -410,6 +413,17 @@ export default function OptionsPanel({
       </div>
 
       {mounted && deleteModal && createPortal(deleteModal, document.body)}
+
+      {mounted && sortingInProgress && createPortal(
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.25)', zIndex:9000, display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div style={{ background:'#fff', borderRadius:12, padding:'28px 32px', textAlign:'center', boxShadow:'0 8px 32px rgba(0,0,0,0.18)', minWidth:260 }}>
+            <div style={{ width:28, height:28, border:'3px solid #e0e0da', borderTopColor:'var(--brand)', borderRadius:'50%', margin:'0 auto 16px', animation:'spin 0.7s linear infinite' }} />
+            <div style={{ fontSize:14, fontWeight:600, color:'#1a1a1a', marginBottom:6 }}>Sorting options…</div>
+            <div style={{ fontSize:12, color:'#888' }}>This may take a moment for large lists.</div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </>
   )
 }
