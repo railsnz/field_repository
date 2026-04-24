@@ -70,18 +70,35 @@ export default function MatterPage() {
   const [showPreview, setShowPreview] = useState(false)
   const [mergeOption, setMergeOption] = useState<Option | null>(null)
   const [infoDeleteMode, setInfoDeleteMode] = useState<'info' | 'delete' | null>(null)
-  // Hidden options stored per field so they persist across open/close
+  // Hidden options — key: `${subTab}:${fieldId}` so Details and Create form are independent
   const [hiddenOptsByField, setHiddenOptsByField] = useState<Map<string, Set<string>>>(new Map())
-  // Derived: hidden opt IDs for the currently open field
-  const hiddenMatterOptIds = activeFieldId ? (hiddenOptsByField.get(activeFieldId) ?? new Set<string>()) : new Set<string>()
-  // Template dirty state — tracks unsaved template changes
-  const [templateDirty, setTemplateDirty] = useState(false)
-  // Snapshots of every field opened during the current dirty session (pre-edit state)
+  // Snapshots of fields opened per tab (pre-edit global baseline) — key: `${subTab}:${fieldId}`
   const [editedFieldSnapshots, setEditedFieldSnapshots] = useState<Map<string, Field>>(new Map())
+  // Per-tab dirty state so each tab tracks its own unsaved changes independently
+  const [detailsDirty, setDetailsDirty] = useState(false)
+  const [createDirty, setCreateDirty] = useState(false)
+
+  // ── Computed per-tab helpers ───────────────────────────────────────────
+  const templateDirty = activeSubTab === 'create' ? createDirty : detailsDirty
+  function setTemplateDirty(val: boolean) {
+    if (activeSubTab === 'create') setCreateDirty(val)
+    else setDetailsDirty(val)
+  }
+  // Compound key: changes in one sub-tab never bleed into the other
+  function tabKey(fieldId: string) { return `${activeSubTab}:${fieldId}` }
+  // Derived: hidden opt IDs for the currently open field in the active tab
+  const hiddenMatterOptIds = activeFieldId
+    ? (hiddenOptsByField.get(tabKey(activeFieldId)) ?? new Set<string>())
+    : new Set<string>()
   // Field order reordering — original order snapshot per matter type for Cancel revert
   const [originalFieldOrderByType, setOriginalFieldOrderByType] = useState<Map<string, string[]>>(new Map())
   const [fieldDragOverIdx, setFieldDragOverIdx] = useState<number | null>(null)
   const fieldDragSrc = useRef<number | null>(null)
+  // ── Unsaved-changes guard ──────────────────────────────────────────────
+  type PendingNav =
+    | { type: 'subTab'; value: 'details' | 'scoping' | 'create' | 'completion' }
+    | { type: 'matterType'; value: string }
+  const [pendingNavigation, setPendingNavigation] = useState<PendingNav | null>(null)
 
   const activeField = allFields.find(f => f.id === activeFieldId) ?? null
 
@@ -125,11 +142,12 @@ export default function MatterPage() {
 
   async function openDrawer(field: Field) {
     setActiveFieldId(field.id)
-    // Capture pre-edit snapshot the first time each field is opened this session
+    // Capture pre-edit snapshot the first time each field is opened in this tab
+    const key = tabKey(field.id)
     setEditedFieldSnapshots(prev => {
-      if (prev.has(field.id)) return prev
+      if (prev.has(key)) return prev
       const next = new Map(prev)
-      next.set(field.id, { ...field })
+      next.set(key, { ...field })
       return next
     })
     await fetchOptions(field.id)
@@ -143,27 +161,29 @@ export default function MatterPage() {
   function handleToggleHiddenOpt(optId: string) {
     if (!activeFieldId) return
     const opt = drawerOptions.find(o => o.id === optId)
-    const current = hiddenOptsByField.get(activeFieldId) ?? new Set<string>()
+    const key = tabKey(activeFieldId)
+    const current = hiddenOptsByField.get(key) ?? new Set<string>()
     const wasHidden = current.has(optId)
     const newIds = new Set(current)
     if (wasHidden) newIds.delete(optId)
     else newIds.add(optId)
     const prevIds = new Set(current)
-    setHiddenOptsByField(prev => { const m = new Map(prev); m.set(activeFieldId, newIds); return m })
+    setHiddenOptsByField(prev => { const m = new Map(prev); m.set(key, newIds); return m })
     setTemplateDirty(true)
     if (wasHidden) {
       showSnackbarMsg(`"${opt?.label ?? 'Option'}" is now available`)
     } else {
       showSnackbarMsg(
         `"${opt?.label ?? 'Option'}" hidden from this matter type`,
-        async () => setHiddenOptsByField(prev => { const m = new Map(prev); m.set(activeFieldId, prevIds); return m }),
+        async () => setHiddenOptsByField(prev => { const m = new Map(prev); m.set(key, prevIds); return m }),
       )
     }
   }
 
   function handleResetHiddenOpts() {
     if (!activeFieldId) return
-    setHiddenOptsByField(prev => { const m = new Map(prev); m.set(activeFieldId, new Set()); return m })
+    const key = tabKey(activeFieldId)
+    setHiddenOptsByField(prev => { const m = new Map(prev); m.set(key, new Set()); return m })
     setTemplateDirty(true)
     showSnackbarMsg('Options reset to global')
   }
@@ -317,8 +337,13 @@ export default function MatterPage() {
   }
 
   async function handleCancelTemplate() {
-    // Revert every field edited during this session back to its pre-edit state
-    for (const [fieldId, snapshot] of editedFieldSnapshots) {
+    // Only revert the current tab's changes
+    const prefix = `${activeSubTab}:`
+    let hadChanges = false
+    for (const [key, snapshot] of editedFieldSnapshots) {
+      if (!key.startsWith(prefix)) continue
+      hadChanges = true
+      const fieldId = key.slice(prefix.length)
       await fetch(`/api/fields/${fieldId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -330,18 +355,24 @@ export default function MatterPage() {
         }),
       })
     }
-    if (editedFieldSnapshots.size > 0) {
+    if (hadChanges) {
       const res = await fetch('/api/fields')
       setAllFields(await res.json())
     }
-    // Clear hidden opts for all fields edited this session
+    // Clear hidden opts for this tab's fields only
     setHiddenOptsByField(prev => {
       const m = new Map(prev)
-      for (const fieldId of editedFieldSnapshots.keys()) m.delete(fieldId)
+      for (const key of [...m.keys()]) { if (key.startsWith(prefix)) m.delete(key) }
       return m
     })
-    // Revert field order for any types that were reordered
-    if (originalFieldOrderByType.size > 0) {
+    // Clear snapshots for this tab only
+    setEditedFieldSnapshots(prev => {
+      const m = new Map(prev)
+      for (const key of [...m.keys()]) { if (key.startsWith(prefix)) m.delete(key) }
+      return m
+    })
+    // Field ordering is Details-tab only — revert if we're discarding Details
+    if (activeSubTab === 'details' && originalFieldOrderByType.size > 0) {
       setMatterFieldIdsByType(prev => {
         const next = { ...prev }
         for (const [typeId, originalIds] of originalFieldOrderByType) {
@@ -349,24 +380,59 @@ export default function MatterPage() {
         }
         return next
       })
+      setOriginalFieldOrderByType(new Map())
     }
-    setOriginalFieldOrderByType(new Map())
     setTemplateDirty(false)
-    setEditedFieldSnapshots(new Map())
     closeDrawer()
     showSnackbarMsg('Changes discarded')
   }
 
-  // ── Fields with pending changes (config or hidden opts — not reorder) ─────
+  // ── Navigation guard helpers ───────────────────────────────────────────
+
+  function executeNav(nav: PendingNav) {
+    if (nav.type === 'subTab') {
+      setActiveSubTab(nav.value)
+      if (nav.value !== 'details') closeDrawer()
+    } else {
+      // Switching matter type — clear ALL tab state to start a fresh session
+      setActiveMatterTypeId(nav.value)
+      setSearchQuery('')
+      setDetailsDirty(false)
+      setCreateDirty(false)
+      setEditedFieldSnapshots(new Map())
+      setHiddenOptsByField(new Map())
+      setOriginalFieldOrderByType(new Map())
+      closeDrawer()
+    }
+    setPendingNavigation(null)
+  }
+
+  function handleRequestNav(nav: PendingNav) {
+    if (nav.type === 'subTab' && nav.value === activeSubTab) return
+    if (nav.type === 'matterType' && nav.value === activeMatterTypeId) return
+    // For matter type switch, guard against either tab being dirty
+    const isDirty = nav.type === 'matterType' ? (detailsDirty || createDirty) : templateDirty
+    if (isDirty) {
+      setPendingNavigation(nav)
+      return
+    }
+    executeNav(nav)
+  }
+
+  // ── Fields with pending changes for the active tab only ───────────────
   const fieldsWithPendingChanges = useMemo(() => {
     if (!templateDirty) return new Set<string>()
+    const prefix = `${activeSubTab}:`
     const result = new Set<string>()
-    // Hidden options
-    for (const [fieldId, hiddenIds] of hiddenOptsByField) {
-      if (hiddenIds.size > 0) result.add(fieldId)
+    // Hidden options — only count keys for the active tab
+    for (const [key, hiddenIds] of hiddenOptsByField) {
+      if (!key.startsWith(prefix)) continue
+      if (hiddenIds.size > 0) result.add(key.slice(prefix.length))
     }
-    // Field config changes vs snapshot
-    for (const [fieldId, snapshot] of editedFieldSnapshots) {
+    // Field config changes vs snapshot — only the active tab's snapshots
+    for (const [key, snapshot] of editedFieldSnapshots) {
+      if (!key.startsWith(prefix)) continue
+      const fieldId = key.slice(prefix.length)
       const current = allFields.find(f => f.id === fieldId)
       if (current && (
         current.description !== snapshot.description ||
@@ -375,7 +441,7 @@ export default function MatterPage() {
       )) result.add(fieldId)
     }
     return result
-  }, [templateDirty, hiddenOptsByField, editedFieldSnapshots, allFields])
+  }, [templateDirty, hiddenOptsByField, editedFieldSnapshots, allFields, activeSubTab])
 
   // ── Sub-tab badge counts ───────────────────────────────────────────────
   const detailsCount = matterFields.length
@@ -398,15 +464,7 @@ export default function MatterPage() {
               <div
                 key={mt.id}
                 className={`matter-type-item${activeMatterTypeId === mt.id ? ' active' : ''}`}
-                onClick={() => {
-                  setActiveMatterTypeId(mt.id)
-                  setSearchQuery('')
-                  setTemplateDirty(false)
-                  setEditedFieldSnapshots(new Map())
-                  setHiddenOptsByField(new Map())
-                  setOriginalFieldOrderByType(new Map())
-                  closeDrawer()
-                }}
+                onClick={() => handleRequestNav({ type: 'matterType', value: mt.id })}
               >
                 {mt.name}
               </div>
@@ -424,7 +482,7 @@ export default function MatterPage() {
           <div className="matter-sub-tabs">
             <div
               className={`matter-sub-tab${activeSubTab === 'details' ? ' active' : ''}`}
-              onClick={() => setActiveSubTab('details')}
+              onClick={() => handleRequestNav({ type: 'subTab', value: 'details' })}
             >
               Matter details
               <span className="sub-tab-badge">{detailsCount}</span>
@@ -435,7 +493,7 @@ export default function MatterPage() {
             </div>
             <div
               className={`matter-sub-tab${activeSubTab === 'create' ? ' active' : ''}`}
-              onClick={() => { setActiveSubTab('create'); closeDrawer() }}
+              onClick={() => handleRequestNav({ type: 'subTab', value: 'create' })}
             >
               Create form
               <span className="sub-tab-badge">1</span>
@@ -585,7 +643,7 @@ export default function MatterPage() {
         {/* ── Edit Drawer (reused) ──────────────────────────── */}
         <EditDrawer
           field={activeField}
-          globalField={activeFieldId ? editedFieldSnapshots.get(activeFieldId) : undefined}
+          globalField={activeFieldId ? editedFieldSnapshots.get(tabKey(activeFieldId)) : undefined}
           options={drawerOptions}
           isOpen={!!activeFieldId}
           context="matter"
@@ -632,6 +690,53 @@ export default function MatterPage() {
         onUndo={handleUndo}
         onDismiss={() => setSnackbar(null)}
       />
+
+      {/* ── Unsaved changes guard modal ─────────────────── */}
+      {pendingNavigation && (
+        <div className="modal-backdrop open" onClick={() => setPendingNavigation(null)}>
+          <div className="modal" style={{ width: 420 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">Unsaved changes</span>
+              <button className="modal-close" onClick={() => setPendingNavigation(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p className="modal-desc" style={{ marginBottom: 0 }}>
+                You have unsaved changes to this tab. Save them before leaving, or discard them.
+              </p>
+            </div>
+            <div className="modal-footer" style={{ padding: '12px 20px 20px', gap: 8 }}>
+              <button
+                className="btn-ghost template-action-btn"
+                style={{ marginRight: 'auto' }}
+                onClick={() => setPendingNavigation(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-ghost template-action-btn"
+                style={{ color: '#d93025', borderColor: '#fad2cf' }}
+                onClick={async () => {
+                  const nav = pendingNavigation
+                  await handleCancelTemplate()
+                  executeNav(nav)
+                }}
+              >
+                Discard changes
+              </button>
+              <button
+                className="btn-primary template-action-btn"
+                onClick={async () => {
+                  const nav = pendingNavigation
+                  await handleSaveTemplate()
+                  executeNav(nav)
+                }}
+              >
+                Save changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

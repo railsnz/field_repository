@@ -181,7 +181,8 @@ export default function FieldConfig({
           Customized
           <span
             className="override-pill-cross"
-            title="Reset to global"
+            onMouseEnter={e => showTip('Reset to global field settings', e, 'right')}
+            onMouseLeave={() => setTooltip(null)}
             onMouseDown={e => e.stopPropagation()}
             onClick={e => { e.stopPropagation(); resetField(fieldKey) }}
           >
@@ -214,7 +215,8 @@ export default function FieldConfig({
           Customized
           <span
             className="override-pill-cross"
-            title="Reset to field name"
+            onMouseEnter={e => showTip('Reset to global field settings', e, 'right')}
+            onMouseLeave={() => setTooltip(null)}
             onMouseDown={e => e.stopPropagation()}
             onClick={e => {
               e.stopPropagation()

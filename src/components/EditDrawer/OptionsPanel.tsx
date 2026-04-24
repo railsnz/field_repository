@@ -59,6 +59,7 @@ export default function OptionsPanel({
   const [editingOptId, setEditingOptId] = useState<string | null>(null)
   const [pendingDeleteOpt, setPendingDeleteOpt] = useState<Option | null>(null)
   const [mounted, setMounted] = useState(false)
+  const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
   const [sortMode, setSortMode] = useState<'az' | 'custom'>('custom')
   const [sortMenuOpen, setSortMenuOpen] = useState(false)
   const [sortingInProgress, setSortingInProgress] = useState(false)
@@ -68,6 +69,11 @@ export default function OptionsPanel({
   const unpinnedDragSrc = useRef<number | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
+
+  function showTip(text: string, e: React.MouseEvent) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setTooltip({ text, x: rect.left + rect.width / 2, y: rect.top })
+  }
 
   useEffect(() => {
     setSortMode('custom')
@@ -286,7 +292,9 @@ export default function OptionsPanel({
                 Customized
                 <span
                   className="override-pill-cross"
-                  title="Reset to global"
+                  onMouseEnter={e => showTip('Reset to global field settings', e)}
+                  onMouseLeave={() => setTooltip(null)}
+                  onMouseDown={e => e.stopPropagation()}
                   onClick={e => { e.stopPropagation(); onResetHiddenOpts?.() }}
                 >
                   {pillCross}
@@ -340,7 +348,7 @@ export default function OptionsPanel({
             {/* Hidden options — shown above search, not part of the searchable list */}
             {context === 'matter' && hiddenOpts.length > 0 && (
               <div className="hidden-above-search">
-                <div className="pinned-section-label hidden-section-label">Hidden from this tab</div>
+                <div className="pinned-section-label hidden-section-label">Hidden options</div>
                 {hiddenOpts.map((opt, i) => renderRow(opt, i, 'hidden'))}
                 <div className="hidden-above-divider" />
               </div>
@@ -413,6 +421,31 @@ export default function OptionsPanel({
       </div>
 
       {mounted && deleteModal && createPortal(deleteModal, document.body)}
+
+      {mounted && tooltip && createPortal(
+        <div style={{
+          position: 'fixed',
+          top: tooltip.y - 8,
+          left: tooltip.x,
+          transform: 'translateX(-50%) translateY(-100%)',
+          background: '#1a1a1a',
+          color: '#fff',
+          fontSize: 11,
+          padding: '4px 8px',
+          borderRadius: 4,
+          whiteSpace: 'nowrap',
+          pointerEvents: 'none',
+          zIndex: 9999,
+        }}>
+          {tooltip.text}
+          <div style={{
+            position: 'absolute', top: '100%', left: '50%',
+            transform: 'translateX(-50%)',
+            border: '4px solid transparent', borderTopColor: '#1a1a1a',
+          }} />
+        </div>,
+        document.body,
+      )}
 
       {mounted && sortingInProgress && createPortal(
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.25)', zIndex:9000, display:'flex', alignItems:'center', justifyContent:'center' }}>

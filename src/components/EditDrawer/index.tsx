@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Field, Option } from '@/types'
 import FieldConfig from './FieldConfig'
 import OptionsPanel from './OptionsPanel'
@@ -43,41 +43,46 @@ export default function EditDrawer({
 }: EditDrawerProps) {
   const [ellipsisOpen, setEllipsisOpen] = useState(false)
   const ellipsisRef = useRef<HTMLDivElement>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
   const [drawerWidth, setDrawerWidth] = useState(DEFAULT_WIDTH)
-
-  // Restore persisted width after mount (avoids SSR/client hydration mismatch)
-  // Cap at 60% of viewport so there's always room for the table
-  useEffect(() => {
-    const maxAllowed = Math.min(MAX_WIDTH, Math.floor(window.innerWidth * 0.6))
-    const saved = localStorage.getItem(LS_KEY)
-    if (saved) {
-      const parsed = parseInt(saved, 10)
-      if (!isNaN(parsed)) setDrawerWidth(Math.min(maxAllowed, Math.max(MIN_WIDTH, parsed)))
-    } else {
-      setDrawerWidth(Math.min(DEFAULT_WIDTH, maxAllowed))
-    }
-  }, [])
   const [isDragging, setIsDragging] = useState(false)
   const dragStartX = useRef<number>(0)
   const dragStartWidth = useRef<number>(DEFAULT_WIDTH)
+  const liveWidth = useRef<number>(DEFAULT_WIDTH)
 
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+  // Restore persisted width after mount (avoids SSR/client hydration mismatch)
+  useEffect(() => {
+    const saved = localStorage.getItem(LS_KEY)
+    if (saved) {
+      const parsed = parseInt(saved, 10)
+      if (!isNaN(parsed)) {
+        const w = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, parsed))
+        setDrawerWidth(w)
+        liveWidth.current = w
+      }
+    }
+  }, [])
+
+  function handleResizeMouseDown(e: React.MouseEvent) {
     e.preventDefault()
     dragStartX.current = e.clientX
-    dragStartWidth.current = drawerWidth
+    dragStartWidth.current = liveWidth.current
     setIsDragging(true)
-  }, [drawerWidth])
+  }
 
   useEffect(() => {
     if (!isDragging) return
     function onMouseMove(e: MouseEvent) {
       const delta = dragStartX.current - e.clientX
-      const maxAllowed = Math.min(MAX_WIDTH, Math.floor(window.innerWidth * 0.6))
-      const newWidth = Math.min(maxAllowed, Math.max(MIN_WIDTH, dragStartWidth.current + delta))
-      setDrawerWidth(newWidth)
+      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, dragStartWidth.current + delta))
+      liveWidth.current = newWidth
+      // Write directly to DOM — zero React re-renders during drag
+      if (drawerRef.current) drawerRef.current.style.width = `${newWidth}px`
     }
     function onMouseUp() {
       setIsDragging(false)
+      setDrawerWidth(liveWidth.current)
+      localStorage.setItem(LS_KEY, String(liveWidth.current))
     }
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('mouseup', onMouseUp)
@@ -86,13 +91,6 @@ export default function EditDrawer({
       document.removeEventListener('mouseup', onMouseUp)
     }
   }, [isDragging])
-
-  // Persist width to localStorage whenever it settles after a drag
-  useEffect(() => {
-    if (!isDragging) {
-      localStorage.setItem(LS_KEY, String(drawerWidth))
-    }
-  }, [isDragging, drawerWidth])
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -111,6 +109,7 @@ export default function EditDrawer({
 
   return (
     <div
+      ref={drawerRef}
       className={`drawer${isOpen ? ' open' : ''}`}
       style={{ width: isOpen ? drawerWidth : 0, userSelect: isDragging ? 'none' : undefined }}
     >
