@@ -285,11 +285,17 @@ export const store = {
   addOption(fieldId: string, label: string): Option[] {
     const field = fields.find(f => f.id === fieldId)
     const opts = optionsByField.get(fieldId) ?? []
-    const newOpt: Option = { id: randomUUID(), label, order: 0 }
-    // In A-Z sort mode append to bottom; in custom mode prepend to top
-    const reordered = field?.sortMode === 'az'
-      ? [...opts, newOpt]
-      : [newOpt, ...opts]
+    const newOpt: Option = { id: randomUUID(), label, order: opts.length }
+    let reordered: Option[]
+    if (field?.sortMode === 'az') {
+      // Insert at the correct alphabetical position
+      const idx = opts.findIndex(o => o.label.localeCompare(label) > 0)
+      if (idx === -1) reordered = [...opts, newOpt]
+      else reordered = [...opts.slice(0, idx), newOpt, ...opts.slice(idx)]
+    } else {
+      // Custom mode — append to bottom
+      reordered = [...opts, newOpt]
+    }
     const updated = reordered.map((o, i) => ({ ...o, order: i }))
     optionsByField.set(fieldId, updated)
     return [...updated]
