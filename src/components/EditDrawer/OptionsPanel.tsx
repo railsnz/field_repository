@@ -14,7 +14,7 @@ const checkIcon = (
 )
 const sortIcon = (
   <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-    <path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    <path d="M5 3v10M5 13l-2-2.5M5 13l2-2.5M11 13V3M11 3l-2 2.5M11 3l2 2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
   </svg>
 )
 const chevronDownIcon = (
@@ -32,35 +32,42 @@ interface OptionsPanelProps {
   fieldId: string
   options: Option[]
   context?: 'field' | 'matter'
+  fieldSortMode?: 'az' | 'custom'
   defaultOption?: string          // label of the current default — cannot be hidden
   hiddenOptIds?: Set<string>      // managed by parent in matter context
   onToggleHide?: (optId: string) => void
   onResetHiddenOpts?: () => void
+  onHideAll?: () => void
+  onShowAll?: () => void
   onAddOption: (label: string) => Promise<void>
   onDeleteOption: (optId: string) => Promise<void>
   onRenameOption: (optId: string, newLabel: string) => Promise<void>
   onSortOptions: () => Promise<void>
   onReorderOptions: (newOrder: Option[]) => Promise<void>
+  onSortModeChange?: (mode: 'az' | 'custom') => Promise<void>
   onMergeOption: (opt: Option) => void
   onSnackbar: (msg: string, undoFn?: () => Promise<void>) => void
 }
 
 export default function OptionsPanel({
   fieldId, options, context = 'field',
+  fieldSortMode = 'custom',
   defaultOption = '',
   hiddenOptIds = new Set(),
-  onToggleHide, onResetHiddenOpts,
+  onToggleHide, onResetHiddenOpts, onHideAll, onShowAll,
   onAddOption, onDeleteOption, onRenameOption, onSortOptions, onReorderOptions,
+  onSortModeChange,
   onMergeOption, onSnackbar,
 }: OptionsPanelProps) {
   const [open, setOpen] = useState(true)
   const [addInput, setAddInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [hiddenSearchQuery, setHiddenSearchQuery] = useState('')
   const [editingOptId, setEditingOptId] = useState<string | null>(null)
   const [pendingDeleteOpt, setPendingDeleteOpt] = useState<Option | null>(null)
   const [mounted, setMounted] = useState(false)
-  const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
-  const [sortMode, setSortMode] = useState<'az' | 'custom'>('custom')
+  const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number; align?: 'center' | 'right' } | null>(null)
+  const [sortMode, setSortMode] = useState<'az' | 'custom'>(fieldSortMode)
   const [sortMenuOpen, setSortMenuOpen] = useState(false)
   const [sortingInProgress, setSortingInProgress] = useState(false)
   const sortMenuRef = useRef<HTMLDivElement>(null)
@@ -70,17 +77,25 @@ export default function OptionsPanel({
 
   useEffect(() => { setMounted(true) }, [])
 
-  function showTip(text: string, e: React.MouseEvent) {
+  function showTip(text: string, e: React.MouseEvent, align: 'center' | 'right' = 'center') {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    setTooltip({ text, x: rect.left + rect.width / 2, y: rect.top })
+    const cx = rect.left + rect.width / 2
+    if (align === 'right') {
+      setTooltip({ text, x: cx + 7, y: rect.top, align: 'right' })
+    } else {
+      const halfW = Math.max(50, text.length * 3.8 + 16)
+      const x = Math.max(halfW + 8, Math.min(cx, window.innerWidth - halfW - 8))
+      setTooltip({ text, x, y: rect.top, align: 'center' })
+    }
   }
 
   useEffect(() => {
-    setSortMode('custom')
+    setSortMode(fieldSortMode)
     setSortMenuOpen(false)
     setSearchQuery('')
+    setHiddenSearchQuery('')
     setAddInput('')
-  }, [fieldId])
+  }, [fieldId, fieldSortMode])
 
   useEffect(() => {
     if (!sortMenuOpen) return
@@ -99,6 +114,14 @@ export default function OptionsPanel({
   // Matter: hidden / visible split
   const hiddenOpts = context === 'matter' ? options.filter(o => hiddenOptIds.has(o.id)) : []
   const visibleOpts = context === 'matter' ? options.filter(o => !hiddenOptIds.has(o.id)) : []
+
+  // Matter: filtered hidden opts (for hidden section search)
+  const filteredHiddenOpts = hiddenSearchQuery
+    ? hiddenOpts.filter(o => o.label.toLowerCase().includes(hiddenSearchQuery.toLowerCase()))
+    : hiddenOpts
+
+  // Hide all / Show all
+  const hideableVisibleCount = visibleOpts.filter(o => !defaultOption || o.label !== defaultOption).length
 
   // Search only over the searchable pool (hidden opts are excluded in matter context)
   const searchPool = context === 'matter' ? visibleOpts : options
@@ -141,16 +164,20 @@ export default function OptionsPanel({
     setSortingInProgress(true)
     const prev = [...options]
     setSortMode('az')
-    await Promise.all([onSortOptions(), new Promise(r => setTimeout(r, 500))])
+    await Promise.all([onSortOptions(), onSortModeChange?.('az'), new Promise(r => setTimeout(r, 500))])
     setSortingInProgress(false)
-    onSnackbar('Options sorted A–Z', async () => { setSortMode('custom'); await onReorderOptions(prev) })
+    onSnackbar('Options sorted A–Z', async () => {
+      setSortMode('custom')
+      await onSortModeChange?.('custom')
+      await onReorderOptions(prev)
+    })
   }
 
   async function handleSetCustom() {
     setSortMenuOpen(false)
     setSortingInProgress(true)
     setSortMode('custom')
-    await new Promise(r => setTimeout(r, 500))
+    await Promise.all([onSortModeChange?.('custom'), new Promise(r => setTimeout(r, 500))])
     setSortingInProgress(false)
   }
 
@@ -232,7 +259,7 @@ export default function OptionsPanel({
         option={opt}
         index={idx}
         isEditing={editingOptId === opt.id}
-        highlightQuery={searchQuery}
+        highlightQuery={section === 'hidden' ? hiddenSearchQuery : searchQuery}
         canDrag={canDrag}
         canEdit={canEdit}
         canHide={canHide}
@@ -272,8 +299,6 @@ export default function OptionsPanel({
     </div>
   )
 
-  const hasHidden = hiddenOptIds.size > 0
-
   return (
     <>
       <div className="options-block">
@@ -283,23 +308,16 @@ export default function OptionsPanel({
             <span className="count-badge">{options.length}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {/* Customized pill — matter context, right side, when any options are hidden */}
-            {context === 'matter' && hasHidden && (
-              <button
-                className="override-pill options-override-pill"
-                type="button"
+            {/* Sort indicator — matter context, read-only */}
+            {context === 'matter' && (
+              <div
+                className="sort-btn sort-btn-readonly"
+                onMouseEnter={e => showTip('Option order must be changed on the global field', e, 'right')}
+                onMouseLeave={() => setTooltip(null)}
               >
-                Customized
-                <span
-                  className="override-pill-cross"
-                  onMouseEnter={e => showTip('Reset to global field settings', e)}
-                  onMouseLeave={() => setTooltip(null)}
-                  onMouseDown={e => e.stopPropagation()}
-                  onClick={e => { e.stopPropagation(); onResetHiddenOpts?.() }}
-                >
-                  {pillCross}
-                </span>
-              </button>
+                {sortIcon}
+                {sortMode === 'az' ? 'A–Z' : 'Custom'}
+              </div>
             )}
 
             {/* Sort dropdown — field context only */}
@@ -345,77 +363,107 @@ export default function OptionsPanel({
 
         {open && (
           <div className="options-inner">
-            {/* Hidden options — shown above search, not part of the searchable list */}
+
+            {/* ── Hidden section ─────────────────────────────── */}
             {context === 'matter' && hiddenOpts.length > 0 && (
-              <div className="hidden-above-search">
-                <div className="pinned-section-label hidden-section-label">Hidden options</div>
-                {hiddenOpts.map((opt, i) => renderRow(opt, i, 'hidden'))}
-                <div className="hidden-above-divider" />
+              <div className="opts-section hidden-section">
+                <div className="opt-section-header">
+                  <div className="pinned-section-label hidden-section-label" style={{ padding: 0 }}>Hidden options ({hiddenOpts.length})</div>
+                </div>
+                <div className="opt-section-controls">
+                  <div className="opt-search-wrap" style={{ width: '50%', flex: 'none' }}>
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.5"/>
+                      <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
+                    <input
+                      className="opt-search-input"
+                      placeholder="Search hidden options…"
+                      value={hiddenSearchQuery}
+                      style={hiddenSearchQuery ? { paddingRight: 24 } : undefined}
+                      onChange={e => setHiddenSearchQuery(e.target.value)}
+                    />
+                    {hiddenSearchQuery && (
+                      <button className="opt-search-clear" onClick={() => setHiddenSearchQuery('')} title="Clear search">×</button>
+                    )}
+                  </div>
+                  <button className="override-pill options-override-pill" type="button">
+                    Customized
+                    <span
+                      className="override-pill-cross"
+                      onMouseEnter={e => showTip('Reset to global field settings', e, 'right')}
+                      onMouseLeave={() => setTooltip(null)}
+                      onMouseDown={e => e.stopPropagation()}
+                      onClick={e => { e.stopPropagation(); setTooltip(null); onResetHiddenOpts?.() }}
+                    >
+                      {pillCross}
+                    </span>
+                  </button>
+                </div>
+                <div className="opt-section-list">
+                  {filteredHiddenOpts.map((opt, i) => renderRow(opt, i, 'hidden'))}
+                </div>
               </div>
             )}
 
-            <div className="opt-controls">
-              <div className="opt-search-wrap">
-                <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                  <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.5"/>
-                  <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
-                <input
-                  className="opt-search-input"
-                  placeholder="Search options…"
-                  value={searchQuery}
-                  style={searchQuery ? { paddingRight: 24 } : undefined}
-                  onChange={e => setSearchQuery(e.target.value)}
-                />
-                {searchQuery && (
-                  <button className="opt-search-clear" onClick={() => setSearchQuery('')} title="Clear search">×</button>
-                )}
-              </div>
-              {context === 'field' && (
-                <div className="opt-add-wrap">
-                  <input
-                    className="opt-add-input"
-                    placeholder="Add an option…"
-                    value={addInput}
-                    onChange={e => setAddInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleAdd()}
-                  />
-                  <button className="opt-add-btn" disabled={!addInput.trim()} onClick={handleAdd}>Add</button>
+            {/* ── Available section ──────────────────────────── */}
+            <div className="opts-section available-section">
+              {context === 'matter' && hiddenOpts.length > 0 && (
+                <div className="opt-section-header">
+                  <div className="pinned-section-label available-section-label" style={{ padding: 0 }}>Available options ({visibleOpts.length})</div>
                 </div>
               )}
-            </div>
-
-            <div className="opt-list-scroll">
-              <div className="opt-list">
-                {isSearching ? (
-                  searchResults.length === 0 ? renderEmptyState()
-                    : searchResults.map((opt, i) => renderRow(opt, i, 'search'))
-                ) : options.length === 0 ? (
-                  renderEmptyState()
-                ) : context === 'matter' ? (
-                  visibleOpts.length === 0
-                    ? <div className="empty-search">All options are hidden</div>
-                    : visibleOpts.map((opt, i) => renderRow(opt, i, 'matter-visible'))
-                ) : (
-                  <>
-                    {/* Pinned section — temporarily hidden
-                    {pinnedOpts.length > 0 && (
-                      <>
-                        <div className="pinned-section-label">Pinned to top</div>
-                        {pinnedOpts.map((opt, i) => renderRow(opt, i, 'pinned'))}
-                        {unpinnedOpts.length > 0 && (
-                          <div className="pinned-divider">
-                            <span className="pinned-divider-label">All options</span>
-                          </div>
-                        )}
-                      </>
-                    )}
-                    */}
-                    {options.map((opt, i) => renderRow(opt, i, 'unpinned'))}
-                  </>
+              <div className="opt-section-controls">
+                <div className="opt-search-wrap" style={context === 'matter' ? { width: '50%', flex: 'none' } : undefined}>
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                    <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.5"/>
+                    <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                  </svg>
+                  <input
+                    className="opt-search-input"
+                    placeholder={context === 'matter' ? 'Search available options…' : 'Search options…'}
+                    value={searchQuery}
+                    style={searchQuery ? { paddingRight: 24 } : undefined}
+                    onChange={e => setSearchQuery(e.target.value)}
+                  />
+                  {searchQuery && (
+                    <button className="opt-search-clear" onClick={() => setSearchQuery('')} title="Clear search">×</button>
+                  )}
+                </div>
+                {context === 'matter' && (
+                  <button className="opt-text-btn" disabled={hideableVisibleCount === 0} onClick={onHideAll}>Hide all</button>
+                )}
+                {context === 'field' && (
+                  <div className="opt-add-wrap">
+                    <input
+                      className="opt-add-input"
+                      placeholder="Add an option…"
+                      value={addInput}
+                      onChange={e => setAddInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleAdd()}
+                    />
+                    <button className="opt-add-btn" disabled={!addInput.trim()} onClick={handleAdd}>Add</button>
+                  </div>
                 )}
               </div>
+              <div className="opt-section-list">
+                <div className="opt-list">
+                  {isSearching ? (
+                    searchResults.length === 0 ? renderEmptyState()
+                      : searchResults.map((opt, i) => renderRow(opt, i, 'search'))
+                  ) : options.length === 0 ? (
+                    renderEmptyState()
+                  ) : context === 'matter' ? (
+                    visibleOpts.length === 0
+                      ? <div className="empty-search">All options are hidden</div>
+                      : visibleOpts.map((opt, i) => renderRow(opt, i, 'matter-visible'))
+                  ) : (
+                    options.map((opt, i) => renderRow(opt, i, 'unpinned'))
+                  )}
+                </div>
+              </div>
             </div>
+
           </div>
         )}
       </div>
@@ -427,7 +475,9 @@ export default function OptionsPanel({
           position: 'fixed',
           top: tooltip.y - 8,
           left: tooltip.x,
-          transform: 'translateX(-50%) translateY(-100%)',
+          transform: tooltip.align === 'right'
+            ? 'translateX(-100%) translateY(-100%)'
+            : 'translateX(-50%) translateY(-100%)',
           background: '#1a1a1a',
           color: '#fff',
           fontSize: 11,
@@ -439,8 +489,11 @@ export default function OptionsPanel({
         }}>
           {tooltip.text}
           <div style={{
-            position: 'absolute', top: '100%', left: '50%',
-            transform: 'translateX(-50%)',
+            position: 'absolute', top: '100%',
+            ...(tooltip.align === 'right'
+              ? { right: 5, left: 'auto', transform: 'none' }
+              : { left: '50%', transform: 'translateX(-50%)' }
+            ),
             border: '4px solid transparent', borderTopColor: '#1a1a1a',
           }} />
         </div>,

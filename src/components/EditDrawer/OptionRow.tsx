@@ -124,11 +124,10 @@ export default function OptionRow({
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const cx = rect.left + rect.width / 2
     if (align === 'right') {
-      // Tooltip extends left; anchor to icon center + small offset so arrow sits on icon
       setTooltip({ text, x: cx + 7, y: rect.top, align: 'right' })
     } else {
-      // Clamp so centered tooltip never clips the right edge
-      const x = Math.min(cx, window.innerWidth - 85)
+      const halfW = Math.max(50, text.length * 3.8 + 16)
+      const x = Math.max(halfW + 8, Math.min(cx, window.innerWidth - halfW - 8))
       setTooltip({ text, x, y: rect.top, align: 'center' })
     }
   }
@@ -149,14 +148,9 @@ export default function OptionRow({
         {/* Left: drag handle or eye-slash status icon */}
         {isHidden ? (
           <span className="opt-hidden-icon">{eyeSlashIcon}</span>
-        ) : (
-          <span
-            className="drag-handle"
-            style={{ visibility: canDrag && !isEditing ? 'visible' : 'hidden' }}
-          >
-            ⠿
-          </span>
-        )}
+        ) : canDrag && !isEditing ? (
+          <span className="drag-handle">⠿</span>
+        ) : null}
 
         {/* Mirror span for measuring edit input width */}
         {isEditing && (
@@ -222,7 +216,7 @@ export default function OptionRow({
                 */}
                 <button
                   className="icon-btn merge"
-                  onMouseEnter={e => showTooltip('Merge', e)}
+                  onMouseEnter={e => showTooltip('Merge', e, 'right')}
                   onMouseLeave={() => setTooltip(null)}
                   onClick={onMerge}
                 >
@@ -230,7 +224,7 @@ export default function OptionRow({
                 </button>
                 <button
                   className="icon-btn del"
-                  onMouseEnter={e => showTooltip('Delete', e)}
+                  onMouseEnter={e => showTooltip('Delete', e, 'right')}
                   onMouseLeave={() => setTooltip(null)}
                   onClick={onDelete}
                 >

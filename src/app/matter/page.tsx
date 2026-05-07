@@ -188,6 +188,27 @@ export default function MatterPage() {
     showSnackbarMsg('Options reset to global')
   }
 
+  function handleHideAll() {
+    if (!activeFieldId) return
+    const key = tabKey(activeFieldId)
+    const activeField = allFields.find(f => f.id === activeFieldId)
+    const defaultLabel = activeField?.defaultOption ?? ''
+    const current = hiddenOptsByField.get(key) ?? new Set<string>()
+    const newIds = new Set(current)
+    drawerOptions
+      .filter(o => !newIds.has(o.id) && (!defaultLabel || o.label !== defaultLabel))
+      .forEach(o => newIds.add(o.id))
+    setHiddenOptsByField(prev => { const m = new Map(prev); m.set(key, newIds); return m })
+    setTemplateDirty(true)
+  }
+
+  function handleShowAll() {
+    if (!activeFieldId) return
+    const key = tabKey(activeFieldId)
+    setHiddenOptsByField(prev => { const m = new Map(prev); m.set(key, new Set()); return m })
+    setTemplateDirty(true)
+  }
+
   // ── Field row drag-and-drop ────────────────────────────────────────────
 
   function handleFieldDragStart(idx: number) {
@@ -652,6 +673,8 @@ export default function MatterPage() {
           showCreateAlias={activeSubTab === 'create'}
           onToggleHiddenOpt={handleToggleHiddenOpt}
           onResetHiddenOpts={handleResetHiddenOpts}
+          onHideAll={handleHideAll}
+          onShowAll={handleShowAll}
           onClose={closeDrawer}
           onUpdateField={handleUpdateField}
           onAddOption={handleAddOption}

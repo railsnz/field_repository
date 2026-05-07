@@ -1,7 +1,7 @@
 import { Field, Option } from '@/types'
 import { randomUUID } from 'crypto'
 
-const SEED_FIELDS: (Omit<Field, 'id' | 'createdAt'> & { description?: string })[] = [
+const SEED_FIELDS: (Omit<Field, 'id' | 'createdAt' | 'sortMode'> & { description?: string })[] = [
   { name: 'Matter Jurisdiction', type: 'Lookup', hint: 'Select the governing jurisdiction for this matter', description: "Court's authority to hear and decide a specific type", placeholder: '', defaultOption: '' },
   { name: 'Claims', type: 'Lookup', hint: 'What are the claims in this litigation', description: '', placeholder: '', defaultOption: '' },
   { name: 'Communication Channels', type: 'Lookup (multi)', hint: '', description: '', placeholder: '', defaultOption: '' },
@@ -227,6 +227,7 @@ function makeField(seed: typeof SEED_FIELDS[0], index: number): Field {
     description: seed.description ?? '',
     placeholder: seed.placeholder ?? '',
     defaultOption: seed.defaultOption ?? '',
+    sortMode: 'custom',
     createdAt: Date.now() - (SEED_FIELDS.length - index) * 1000,
   }
 }
@@ -255,6 +256,7 @@ export const store = {
       description: data.description ?? '',
       placeholder: data.placeholder ?? '',
       defaultOption: '',
+      sortMode: 'custom',
       createdAt: Date.now(),
     }
     fields.unshift(field)
@@ -281,10 +283,14 @@ export const store = {
   },
 
   addOption(fieldId: string, label: string): Option[] {
+    const field = fields.find(f => f.id === fieldId)
     const opts = optionsByField.get(fieldId) ?? []
     const newOpt: Option = { id: randomUUID(), label, order: 0 }
-    // Prepend: shift all existing orders up
-    const updated = [newOpt, ...opts].map((o, i) => ({ ...o, order: i }))
+    // In A-Z sort mode append to bottom; in custom mode prepend to top
+    const reordered = field?.sortMode === 'az'
+      ? [...opts, newOpt]
+      : [newOpt, ...opts]
+    const updated = reordered.map((o, i) => ({ ...o, order: i }))
     optionsByField.set(fieldId, updated)
     return [...updated]
   },

@@ -6,6 +6,7 @@ export interface Field {
   description: string
   placeholder: string
   defaultOption: string
+  sortMode: 'az' | 'custom'
   createdAt: number
 }
 

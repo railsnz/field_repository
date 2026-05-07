@@ -84,7 +84,9 @@ export default function FieldConfig({
     if (align === 'right') {
       setTooltip({ text, x: cx + 7, y: rect.top, align: 'right' })
     } else {
-      setTooltip({ text, x: Math.min(cx, window.innerWidth - 100), y: rect.top, align: 'center' })
+      const halfW = Math.max(50, text.length * 3.8 + 16)
+      const x = Math.max(halfW + 8, Math.min(cx, window.innerWidth - halfW - 8))
+      setTooltip({ text, x, y: rect.top, align: 'center' })
     }
   }
 
@@ -184,7 +186,7 @@ export default function FieldConfig({
             onMouseEnter={e => showTip('Reset to global field settings', e, 'right')}
             onMouseLeave={() => setTooltip(null)}
             onMouseDown={e => e.stopPropagation()}
-            onClick={e => { e.stopPropagation(); resetField(fieldKey) }}
+            onClick={e => { e.stopPropagation(); setTooltip(null); resetField(fieldKey) }}
           >
             {pillCross}
           </span>
@@ -220,6 +222,7 @@ export default function FieldConfig({
             onMouseDown={e => e.stopPropagation()}
             onClick={e => {
               e.stopPropagation()
+              setTooltip(null)
               setCreateAlias(field.name)
               setAliasCustomized(false)
               setAliasActive(false)
@@ -285,7 +288,7 @@ export default function FieldConfig({
                   className="info-icon-btn"
                   type="button"
                   onMouseEnter={e => showTip(
-                    'Replaces the field name on the create form only — ideal for shorter or more user-friendly labels without renaming the underlying field.',
+                    'Replaces the field name in the create form only.',
                     e,
                     'center',
                   )}

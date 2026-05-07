@@ -21,6 +21,8 @@ interface EditDrawerProps {
   showCreateAlias?: boolean
   onToggleHiddenOpt?: (optId: string) => void
   onResetHiddenOpts?: () => void
+  onHideAll?: () => void
+  onShowAll?: () => void
   onClose: () => void
   onUpdateField: (updates: Partial<Field>) => Promise<void>
   onAddOption: (label: string) => Promise<void>
@@ -37,6 +39,7 @@ interface EditDrawerProps {
 export default function EditDrawer({
   field, globalField, options, isOpen, context = 'field', contextLabel,
   hiddenMatterOptIds, showCreateAlias = false, onToggleHiddenOpt, onResetHiddenOpts,
+  onHideAll, onShowAll,
   onClose, onUpdateField, onAddOption, onDeleteOption, onRenameOption,
   onSortOptions, onReorderOptions, onMergeOption,
   onOpenPreview, onOpenInfoDelete, onSnackbar,
@@ -173,7 +176,7 @@ export default function EditDrawer({
               <path d="M8 7v4M8 5.2v.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
             </svg>
             <span>
-              Customizing for <strong>{contextLabel}</strong>{' '}only. Changes here don&apos;t affect the global field or other tabs.
+              Customizing for <strong>{contextLabel}</strong>{' '}only. Changes here don&apos;t affect the global field or other layouts.
             </span>
           </div>
         )}
@@ -192,15 +195,19 @@ export default function EditDrawer({
               fieldId={field.id}
               options={options}
               context={context}
+              fieldSortMode={field.sortMode}
               defaultOption={field.defaultOption}
               hiddenOptIds={hiddenMatterOptIds}
               onToggleHide={onToggleHiddenOpt}
               onResetHiddenOpts={onResetHiddenOpts}
+              onHideAll={onHideAll}
+              onShowAll={onShowAll}
               onAddOption={onAddOption}
               onDeleteOption={onDeleteOption}
               onRenameOption={onRenameOption}
               onSortOptions={onSortOptions}
               onReorderOptions={onReorderOptions}
+              onSortModeChange={mode => onUpdateField({ sortMode: mode })}
               onMergeOption={onMergeOption}
               onSnackbar={onSnackbar}
             />
