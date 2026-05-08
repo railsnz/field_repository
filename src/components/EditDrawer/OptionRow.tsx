@@ -14,6 +14,7 @@ interface OptionRowProps {
   canHide?: boolean
   isHidden?: boolean
   isDefault?: boolean   // this option is the field's default — cannot be hidden
+  canMove?: boolean
   onDragStart: (idx: number) => void
   onDragOver: (e: React.DragEvent, idx: number) => void
   onDragLeave: (e: React.DragEvent) => void
@@ -27,6 +28,8 @@ interface OptionRowProps {
   onDelete: () => void
   // onPin: () => void  // temporarily hidden
   onToggleHide?: () => void
+  onMoveToTop?: () => void
+  onMoveToBottom?: () => void
 }
 
 const deleteIcon = (
@@ -36,7 +39,9 @@ const deleteIcon = (
 )
 const mergeIcon = (
   <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-    <path d="M3 4h4l2 2-2 2H3M13 4h-4l-2 2 2 2h4M8 6v6M8 12l-2-2M8 12l2-2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M2 3C5 3 8.5 7 11 8C8.5 9 5 13 2 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+    <path d="M11 8h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    <path d="M12.5 6.5L14 8l-1.5 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
   </svg>
 )
 const tickIcon = (
@@ -47,6 +52,11 @@ const tickIcon = (
 const crossIcon = (
   <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
     <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+)
+const moveIcon = (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+    <path d="M8 2v12M8 2l-2 2.5M8 2l2 2.5M8 14l-2-2.5M8 14l2-2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
   </svg>
 )
 const pinIcon = (isPinned: boolean) => (
@@ -94,14 +104,19 @@ function renderHighlighted(text: string, query: string) {
 export default function OptionRow({
   option, isEditing, highlightQuery = '', index,
   canDrag, canEdit, canHide = false, isHidden = false, isDefault = false,
+  canMove = false,
   onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd,
   onMerge, onEdit, onSaveEdit, onCancelEdit, onDelete, onToggleHide,
+  onMoveToTop, onMoveToBottom,
 }: OptionRowProps) {
   const [editVal, setEditVal] = useState(option.label)
   const [inputWidth, setInputWidth] = useState<number>(120)
   const [isDragOver, setIsDragOver] = useState(false)
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number; align?: 'center' | 'right' } | null>(null)
   const [mounted, setMounted] = useState(false)
+  const [moveMenuOpen, setMoveMenuOpen] = useState(false)
+  const [moveMenuPos, setMoveMenuPos] = useState<{ x: number; y: number; flipUp: boolean }>({ x: 0, y: 0, flipUp: false })
+  const moveBtnRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const mirrorRef = useRef<HTMLSpanElement>(null)
 
@@ -120,6 +135,18 @@ export default function OptionRow({
     }
   }, [editVal, isEditing])
 
+  useEffect(() => {
+    if (!moveMenuOpen) return
+    function handler(e: MouseEvent) {
+      if (moveBtnRef.current && !moveBtnRef.current.closest('.move-menu-wrap')?.contains(e.target as Node)) {
+        setMoveMenuOpen(false)
+      }
+    }
+    // Use 'click' (not 'mousedown') so the dropdown item's onClick fires before this closes the menu
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [moveMenuOpen])
+
   function showTooltip(text: string, e: React.MouseEvent, align: 'center' | 'right' = 'center') {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const cx = rect.left + rect.width / 2
@@ -132,12 +159,27 @@ export default function OptionRow({
     }
   }
 
+  function openMoveMenu(e: React.MouseEvent) {
+    e.stopPropagation()
+    setTooltip(null)
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const dropdownHeight = 80 // approx: 2 items × ~34px + border
+    const spaceBelow = window.innerHeight - rect.bottom
+    const flipUp = spaceBelow < dropdownHeight + 8
+    setMoveMenuPos({
+      x: rect.left,
+      y: flipUp ? rect.top - 4 : rect.bottom + 4,
+      flipUp,
+    })
+    setMoveMenuOpen(v => !v)
+  }
+
   // const isPinned = !!option.pinned  // temporarily hidden
 
   return (
     <>
       <div
-        className={`opt-row${isDragOver ? ' drag-over' : ''}${isHidden ? ' opt-row-hidden' : ''}`}
+        className={`opt-row${isDragOver ? ' drag-over' : ''}${isHidden ? ' opt-row-hidden' : ''}${moveMenuOpen ? ' opt-row-menu-open' : ''}`}
         draggable={canDrag && !isEditing}
         onDragStart={() => canDrag && !isEditing && onDragStart(index)}
         onDragOver={e => { e.preventDefault(); setIsDragOver(true); onDragOver(e, index) }}
@@ -195,7 +237,7 @@ export default function OptionRow({
 
         {/* Field-library edit actions */}
         {canEdit && (
-          <div className="row-actions">
+          <div className="row-actions" style={moveMenuOpen ? { opacity: 1 } : undefined}>
             {isEditing ? (
               <>
                 <button className="icon-btn confirm" onMouseDown={e => e.preventDefault()} onClick={() => onSaveEdit(editVal)} title="Save">{tickIcon}</button>
@@ -214,6 +256,35 @@ export default function OptionRow({
                   {pinIcon(isPinned)}
                 </button>
                 */}
+                {canMove && (
+                  <div className="move-menu-wrap" style={{ position: 'relative' }}>
+                    <button
+                      ref={moveBtnRef}
+                      className="icon-btn move"
+                      onMouseEnter={e => { if (!moveMenuOpen) showTooltip('Move', e, 'right') }}
+                      onMouseLeave={() => setTooltip(null)}
+                      onClick={openMoveMenu}
+                    >
+                      {moveIcon}
+                    </button>
+                    {moveMenuOpen && mounted && createPortal(
+                      <div
+                        className="move-dropdown"
+                        style={{
+                          position: 'fixed',
+                          top: moveMenuPos.y,
+                          left: moveMenuPos.x,
+                          zIndex: 9999,
+                          transform: moveMenuPos.flipUp ? 'translateY(-100%)' : undefined,
+                        }}
+                      >
+                        <div className="move-dropdown-item" onMouseDown={e => e.preventDefault()} onClick={() => { setMoveMenuOpen(false); onMoveToTop?.() }}>Move to top</div>
+                        <div className="move-dropdown-item" onMouseDown={e => e.preventDefault()} onClick={() => { setMoveMenuOpen(false); onMoveToBottom?.() }}>Move to bottom</div>
+                      </div>,
+                      document.body,
+                    )}
+                  </div>
+                )}
                 <button
                   className="icon-btn merge"
                   onMouseEnter={e => showTooltip('Merge', e, 'right')}

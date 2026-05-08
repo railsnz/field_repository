@@ -215,6 +215,21 @@ export default function OptionsPanel({
   function handlePinnedDragEnd() { pinnedDragSrc.current = null }
   ── end pin ─────────────────────────────────────────── */
 
+  // ── Move to top / bottom ─────────────────────────────
+  async function handleMoveToTop(opt: Option) {
+    const prev = [...options]
+    const without = options.filter(o => o.id !== opt.id)
+    await onReorderOptions([opt, ...without])
+    onSnackbar(`"${opt.label}" moved to top`, async () => { await onReorderOptions(prev) })
+  }
+
+  async function handleMoveToBottom(opt: Option) {
+    const prev = [...options]
+    const without = options.filter(o => o.id !== opt.id)
+    await onReorderOptions([...without, opt])
+    onSnackbar(`"${opt.label}" moved to bottom`, async () => { await onReorderOptions(prev) })
+  }
+
   // ── Drag — unpinned ──────────────────────────────────
   function handleUnpinnedDragStart(idx: number) { unpinnedDragSrc.current = idx }
   function handleUnpinnedDragOver(e: React.DragEvent) { e.preventDefault() }
@@ -248,6 +263,7 @@ export default function OptionsPanel({
     const canDrag = section === 'unpinned' && canDragUnpinned
     const canEdit = context === 'field'
     const canHide = context === 'matter'
+    const canMove = context === 'field' && sortMode === 'custom' && !isSearching && section !== 'search'
     const isHid = hiddenOptIds.has(opt.id)
     const isDef = !!defaultOption && opt.label === defaultOption
 
@@ -265,6 +281,7 @@ export default function OptionsPanel({
         canHide={canHide}
         isHidden={isHid}
         isDefault={isDef}
+        canMove={canMove}
         {...dragHandlers}
         onMerge={() => onMergeOption(opt)}
         onEdit={() => setEditingOptId(opt.id)}
@@ -272,6 +289,8 @@ export default function OptionsPanel({
         onCancelEdit={() => setEditingOptId(null)}
         onDelete={() => setPendingDeleteOpt(opt)}
         onToggleHide={() => onToggleHide?.(opt.id)}
+        onMoveToTop={() => handleMoveToTop(opt)}
+        onMoveToBottom={() => handleMoveToBottom(opt)}
       />
     )
   }
@@ -315,7 +334,7 @@ export default function OptionsPanel({
                 onMouseEnter={e => showTip('Option order must be changed on the global field', e, 'right')}
                 onMouseLeave={() => setTooltip(null)}
               >
-                {sortIcon}
+                <span style={{ color: '#aaa', fontWeight: 400 }}>Sort:</span>
                 {sortMode === 'az' ? 'A–Z' : 'Custom'}
               </div>
             )}
@@ -324,7 +343,7 @@ export default function OptionsPanel({
             {context === 'field' && (
               <div ref={sortMenuRef} className="sort-menu-wrap">
                 <button className="sort-btn" onClick={() => setSortMenuOpen(v => !v)}>
-                  {sortIcon}
+                  <span style={{ color: '#aaa', fontWeight: 400 }}>Sort:</span>
                   {sortMode === 'az' ? 'A–Z' : 'Custom'}
                   {chevronDownIcon}
                 </button>
